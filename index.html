@@ -413,8 +413,64 @@ let isCapturing = false, gridOn = false;
 let zoomLvl = 1, zoomTimer = null, afTimer = null;
 let viewerIdx = -1;
 let liveRAF = null, liveSkip = 0;
-let photos = [];
-try { photos = JSON.parse(localStorage.getItem('leitz-photos') || '[]'); } catch(e){ photos=[]; }
+let photos = [];   // in-memory index: full objects including dataURL
+
+// ════════════════════════════════════════
+// INDEXEDDB — replaces localStorage, no size cap
+// ════════════════════════════════════════
+let db = null;
+const DB_NAME='LeitzDB', DB_VER=1, STORE='photos';
+
+function openDB(){
+  return new Promise((res,rej)=>{
+    const req=indexedDB.open(DB_NAME,DB_VER);
+    req.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains(STORE)){
+        const s=d.createObjectStore(STORE,{keyPath:'id'});
+        s.createIndex('ts','ts',{unique:false});
+      }
+    };
+    req.onsuccess=e=>{ db=e.target.result; res(db); };
+    req.onerror=e=>rej(e.target.error);
+  });
+}
+
+function dbSave(photo){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(STORE,'readwrite');
+    tx.objectStore(STORE).put(photo);
+    tx.oncomplete=res;
+    tx.onerror=e=>rej(e.target.error);
+  });
+}
+
+function dbLoadAll(){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(STORE,'readonly');
+    const req=tx.objectStore(STORE).getAll();
+    req.onsuccess=e=>res(e.target.result.sort((a,b)=>b.id-a.id));
+    req.onerror=e=>rej(e.target.error);
+  });
+}
+
+function dbGetOne(id){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(STORE,'readonly');
+    const req=tx.objectStore(STORE).get(id);
+    req.onsuccess=e=>res(e.target.result);
+    req.onerror=e=>rej(e.target.error);
+  });
+}
+
+function dbDelete(id){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(STORE,'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete=res;
+    tx.onerror=e=>rej(e.target.error);
+  });
+}
 
 // ════════════════════════════════════════
 // EXPOSURE DIALS
@@ -822,7 +878,8 @@ async function capture(){
   const p=getActiveParams();
   if(p) applyFilter(ctx,canvas.width,canvas.height,p,false); // include grain on capture
 
-  const dataURL=canvas.toDataURL('image/jpeg',0.93);
+  // JPEG quality 0.88 — good quality, ~400-600KB per shot, far below IndexedDB limits
+  const dataURL=canvas.toDataURL('image/jpeg',0.88);
   const meta={
     id:Date.now(),filter:activeFilter,mode,
     f:mode==='manual'?'f/'+F_STOPS[fIdx]:'AUTO',
@@ -831,16 +888,10 @@ async function capture(){
     ts:new Date().toISOString(),dataURL
   };
   photos.unshift(meta);
-  persistPhotos();
+  try{ await dbSave(meta); } catch(e){ console.warn('DB save failed',e); }
   updateGalThumb(dataURL);
   toast('Frame saved');
   isCapturing=false;
-}
-
-function persistPhotos(){
-  photos=photos.slice(0,60);
-  try{ localStorage.setItem('leitz-photos',JSON.stringify(photos)); }
-  catch(e){ photos=photos.slice(0,30); try{ localStorage.setItem('leitz-photos',JSON.stringify(photos)); }catch(e2){} }
 }
 
 function updateGalThumb(url){
@@ -850,9 +901,11 @@ function updateGalThumb(url){
 // ════════════════════════════════════════
 // GALLERY
 // ════════════════════════════════════════
-function openGallery(){
+async function openGallery(){
   document.getElementById('cameraScreen').classList.remove('active');
   document.getElementById('galleryScreen').classList.add('active');
+  // Always reload fresh from DB
+  try{ photos = await dbLoadAll(); } catch(e){}
   renderGallery();
 }
 function closeGallery(){
@@ -876,7 +929,27 @@ function renderGallery(){
     badge.className='fbadge';
     badge.textContent=p.filter.replace('m_','').substring(0,8);
     item.appendChild(img); item.appendChild(badge);
+
+    // Tap = open viewer
     item.addEventListener('click',()=>openViewer(idx));
+
+    // Long-press = delete
+    let pressTimer=null;
+    const startPress=()=>{
+      pressTimer=setTimeout(async()=>{
+        if(confirm('Delete this photo?')){
+          await dbDelete(p.id);
+          photos.splice(idx,1);
+          renderGallery();
+        }
+      },600);
+    };
+    const cancelPress=()=>clearTimeout(pressTimer);
+    item.addEventListener('touchstart',startPress,{passive:true});
+    item.addEventListener('touchend',cancelPress,{passive:true});
+    item.addEventListener('mousedown',startPress);
+    item.addEventListener('mouseup',cancelPress);
+
     grid.appendChild(item);
   });
 }
@@ -930,6 +1003,16 @@ document.addEventListener('touchmove', e=>e.preventDefault(), {passive:false});
 
 window.addEventListener('load', async ()=>{
   updateDialDisplays();
+
+  // Open IndexedDB first
+  try{
+    await openDB();
+    photos = await dbLoadAll();
+  } catch(e){
+    console.warn('IndexedDB unavailable, falling back to memory',e);
+    photos = [];
+  }
+
   if(navigator.mediaDevices?.getUserMedia){
     await startCamera();
     const v=document.getElementById('video');
@@ -942,6 +1025,7 @@ window.addEventListener('load', async ()=>{
   } else {
     toast('Camera not available');
   }
+
   if(photos.length) updateGalThumb(photos[0].dataURL);
 });
 </script>
