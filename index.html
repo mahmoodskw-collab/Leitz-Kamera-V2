@@ -261,14 +261,111 @@ html,body{
 .gal-empty svg{opacity:.2;}
 .gal-empty p{font-size:11px;letter-spacing:.2em;text-transform:uppercase;}
 
-/* Viewer */
-#viewer{display:none;position:fixed;inset:0;background:#000;z-index:200;flex-direction:column;align-items:center;justify-content:center;}
+/* ── VIEWER ── */
+#viewer{
+  display:none;position:fixed;inset:0;
+  background:#000;z-index:200;
+  flex-direction:column;
+  overflow:hidden;
+  touch-action:pan-x; /* allow horizontal swipe */
+}
 #viewer.open{display:flex;}
-#viewerImg{max-width:100%;max-height:100%;object-fit:contain;}
-.viewer-bar{position:absolute;bottom:0;left:0;right:0;padding:14px 18px calc(var(--safe-bottom)+14px);display:flex;justify-content:space-between;align-items:center;background:linear-gradient(to top,rgba(0,0,0,.9) 0%,transparent 100%);}
-.v-close{background:none;border:none;color:var(--cream);font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;}
-.v-save{background:var(--red);border:none;color:#fff;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;padding:8px 16px;cursor:pointer;}
-.v-meta{font-size:9px;letter-spacing:.12em;color:var(--silver);text-align:center;line-height:1.6;}
+
+/* Slide track — holds all photos side by side */
+#viewerTrack{
+  display:flex;
+  flex:1;
+  transition:transform .3s cubic-bezier(.25,.46,.45,.94);
+  will-change:transform;
+}
+
+.v-slide{
+  flex-shrink:0;
+  width:100vw;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+}
+
+.v-slide img{
+  max-width:100%;
+  max-height:100%;
+  object-fit:contain;
+  pointer-events:none;
+  display:block;
+}
+
+/* Counter pill */
+#viewerCounter{
+  position:absolute;top:calc(var(--safe-top)+14px);left:50%;
+  transform:translateX(-50%);
+  font-size:10px;letter-spacing:.15em;
+  color:rgba(255,255,255,.7);
+  background:rgba(0,0,0,.55);
+  padding:3px 12px;border-radius:20px;
+  z-index:10;pointer-events:none;
+}
+
+/* Top bar */
+.viewer-top{
+  position:absolute;top:0;left:0;right:0;
+  padding:calc(var(--safe-top)+12px) 16px 10px;
+  display:flex;justify-content:space-between;align-items:center;
+  background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 100%);
+  z-index:10;
+}
+.v-close{
+  background:none;border:none;color:var(--cream);
+  font-family:'Courier Prime',monospace;
+  font-size:10px;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;
+  padding:6px 0;
+}
+
+/* Bottom bar */
+.viewer-bar{
+  position:absolute;bottom:0;left:0;right:0;
+  padding:14px 18px calc(var(--safe-bottom)+16px);
+  display:flex;justify-content:space-between;align-items:flex-end;
+  background:linear-gradient(to top,rgba(0,0,0,.88) 0%,transparent 100%);
+  z-index:10;
+}
+.v-meta{
+  font-size:9px;letter-spacing:.12em;color:var(--silver);
+  line-height:1.7;flex:1;
+}
+.viewer-actions{
+  display:flex;gap:10px;align-items:center;
+}
+.v-save{
+  background:var(--red);border:none;color:#fff;
+  font-family:'Courier Prime',monospace;
+  font-size:10px;letter-spacing:.15em;text-transform:uppercase;
+  padding:9px 16px;cursor:pointer;
+}
+.v-delete{
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.2);
+  color:var(--cream);
+  font-family:'Courier Prime',monospace;
+  font-size:10px;letter-spacing:.15em;text-transform:uppercase;
+  padding:9px 14px;cursor:pointer;
+  transition:background .2s,border-color .2s;
+}
+.v-delete:active{background:rgba(204,0,0,.3);border-color:var(--red);}
+
+/* Swipe nav arrows (desktop hint, hidden on small) */
+.v-arrow{
+  position:absolute;top:50%;transform:translateY(-50%);
+  background:rgba(0,0,0,.4);border:none;
+  color:rgba(255,255,255,.6);font-size:28px;
+  padding:12px 10px;cursor:pointer;z-index:10;
+  display:none; /* shown only on wide screens */
+}
+.v-arrow.left{left:0;}
+.v-arrow.right{right:0;}
+@media(min-width:600px){.v-arrow{display:block;}}
 </style>
 </head>
 <body>
@@ -395,11 +492,28 @@ html,body{
 
 <!-- ══ VIEWER ══ -->
 <div id="viewer">
-  <img id="viewerImg" src="" alt="">
+  <!-- Top bar -->
+  <div class="viewer-top">
+    <button class="v-close" onclick="closeViewer()">← Archive</button>
+  </div>
+
+  <!-- Counter -->
+  <div id="viewerCounter">1 / 1</div>
+
+  <!-- Slide track (populated by JS) -->
+  <div id="viewerTrack"></div>
+
+  <!-- Desktop nav arrows -->
+  <button class="v-arrow left"  onclick="viewerStep(-1)">‹</button>
+  <button class="v-arrow right" onclick="viewerStep(1)">›</button>
+
+  <!-- Bottom bar -->
   <div class="viewer-bar">
-    <button class="v-close" onclick="closeViewer()">← Close</button>
     <div class="v-meta" id="viewerMeta"></div>
-    <button class="v-save" onclick="savePhoto()">Save ↓</button>
+    <div class="viewer-actions">
+      <button class="v-delete" onclick="deleteCurrentPhoto()">Delete</button>
+      <button class="v-save"   onclick="savePhoto()">Save ↓</button>
+    </div>
   </div>
 </div>
 
@@ -933,45 +1047,149 @@ function renderGallery(){
     // Tap = open viewer
     item.addEventListener('click',()=>openViewer(idx));
 
-    // Long-press = delete
-    let pressTimer=null;
-    const startPress=()=>{
-      pressTimer=setTimeout(async()=>{
-        if(confirm('Delete this photo?')){
-          await dbDelete(p.id);
-          photos.splice(idx,1);
-          renderGallery();
-        }
-      },600);
-    };
-    const cancelPress=()=>clearTimeout(pressTimer);
-    item.addEventListener('touchstart',startPress,{passive:true});
-    item.addEventListener('touchend',cancelPress,{passive:true});
-    item.addEventListener('mousedown',startPress);
-    item.addEventListener('mouseup',cancelPress);
-
     grid.appendChild(item);
   });
 }
 
 // ════════════════════════════════════════
-// VIEWER
+// VIEWER — swipeable carousel
 // ════════════════════════════════════════
-function openViewer(idx){
-  viewerIdx=idx;
-  const p=photos[idx];
-  document.getElementById('viewerImg').src=p.dataURL;
-  document.getElementById('viewerMeta').innerHTML=
+function buildViewerTrack(){
+  const track = document.getElementById('viewerTrack');
+  track.innerHTML = '';
+  photos.forEach(p => {
+    const slide = document.createElement('div');
+    slide.className = 'v-slide';
+    const img = document.createElement('img');
+    img.src = p.dataURL;
+    img.alt = p.filter;
+    slide.appendChild(img);
+    track.appendChild(slide);
+  });
+}
+
+function updateViewerUI(){
+  const p = photos[viewerIdx];
+  if(!p) return;
+  document.getElementById('viewerCounter').textContent =
+    `${viewerIdx+1} / ${photos.length}`;
+  document.getElementById('viewerMeta').innerHTML =
     `${p.filter.toUpperCase()} &nbsp;·&nbsp; ${p.f} &nbsp;·&nbsp; ${p.s} &nbsp;·&nbsp; ${p.iso}`+
     `<br><span style="font-size:8px;opacity:.5;">${new Date(p.ts).toLocaleString()}</span>`;
-  document.getElementById('viewer').classList.add('open');
+  // Move track without animation when opening, with animation when swiping
+  const track = document.getElementById('viewerTrack');
+  track.style.transform = `translateX(${-viewerIdx * 100}vw)`;
 }
-function closeViewer(){ document.getElementById('viewer').classList.remove('open'); }
+
+function openViewer(idx){
+  viewerIdx = idx;
+  buildViewerTrack();
+  document.getElementById('viewer').classList.add('open');
+  // Snap into position (no animation on open)
+  const track = document.getElementById('viewerTrack');
+  track.style.transition = 'none';
+  track.style.transform  = `translateX(${-idx * 100}vw)`;
+  requestAnimationFrame(()=>{
+    track.style.transition = '';
+    updateViewerUI();
+  });
+  initViewerSwipe();
+}
+
+function closeViewer(){
+  document.getElementById('viewer').classList.remove('open');
+}
+
+function viewerStep(dir){
+  const next = viewerIdx + dir;
+  if(next < 0 || next >= photos.length) return;
+  viewerIdx = next;
+  updateViewerUI();
+}
+
+async function deleteCurrentPhoto(){
+  if(viewerIdx < 0 || !photos[viewerIdx]) return;
+  const p = photos[viewerIdx];
+  if(!confirm('Delete this photo?')) return;
+
+  try{ await dbDelete(p.id); } catch(e){ console.warn(e); }
+  photos.splice(viewerIdx, 1);
+
+  if(!photos.length){
+    closeViewer();
+    renderGallery();
+    return;
+  }
+  // Stay on same index (now shows next photo), or step back if at end
+  if(viewerIdx >= photos.length) viewerIdx = photos.length - 1;
+
+  buildViewerTrack();
+  const track = document.getElementById('viewerTrack');
+  track.style.transition = 'none';
+  track.style.transform  = `translateX(${-viewerIdx * 100}vw)`;
+  requestAnimationFrame(()=>{ track.style.transition=''; updateViewerUI(); });
+  renderGallery(); // refresh grid in background
+}
+
 function savePhoto(){
-  if(viewerIdx<0) return;
-  const a=document.createElement('a');
-  a.href=photos[viewerIdx].dataURL; a.download=`leitz-${photos[viewerIdx].id}.jpg`;
-  a.click(); toast('Saved to device');
+  if(viewerIdx < 0 || !photos[viewerIdx]) return;
+  const a = document.createElement('a');
+  a.href     = photos[viewerIdx].dataURL;
+  a.download = `leitz-${photos[viewerIdx].id}.jpg`;
+  a.click();
+  toast('Saved to device');
+}
+
+// ── Touch swipe for viewer ──
+function initViewerSwipe(){
+  const viewer = document.getElementById('viewer');
+  // Remove old listeners by cloning
+  const fresh = viewer.cloneNode(true);
+  viewer.parentNode.replaceChild(fresh, viewer);
+  // Re-attach button handlers lost after clone
+  fresh.querySelector('.v-close').onclick  = closeViewer;
+  fresh.querySelector('.v-delete').onclick = deleteCurrentPhoto;
+  fresh.querySelector('.v-save').onclick   = savePhoto;
+  const arrows = fresh.querySelectorAll('.v-arrow');
+  arrows[0].onclick = ()=>viewerStep(-1);
+  arrows[1].onclick = ()=>viewerStep(1);
+
+  let startX=0, startY=0, isDragging=false, moved=false;
+
+  fresh.addEventListener('touchstart', e=>{
+    if(e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    isDragging = true; moved = false;
+  }, {passive:true});
+
+  fresh.addEventListener('touchmove', e=>{
+    if(!isDragging || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if(!moved && Math.abs(dy) > Math.abs(dx)) { isDragging=false; return; }
+    moved = true;
+    // Live drag feedback
+    const track = fresh.querySelector('#viewerTrack');
+    if(track){
+      track.style.transition = 'none';
+      track.style.transform  = `translateX(calc(${-viewerIdx * 100}vw + ${dx}px))`;
+    }
+  }, {passive:true});
+
+  fresh.addEventListener('touchend', e=>{
+    if(!isDragging) return;
+    isDragging = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const track = fresh.querySelector('#viewerTrack');
+    if(track) track.style.transition = '';
+    if(Math.abs(dx) > 50){
+      viewerStep(dx < 0 ? 1 : -1);
+    } else {
+      // Snap back
+      if(track) track.style.transform = `translateX(${-viewerIdx * 100}vw)`;
+    }
+  }, {passive:true});
 }
 
 // ════════════════════════════════════════
