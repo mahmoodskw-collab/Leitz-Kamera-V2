@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0D0D0D">
+<title>LEITZ Kamera</title>
+<link rel="manifest" href="manifest.json">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Courier+Prime:wght@400;700&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+
+:root{
+  --red:#CC0000;
+  --cream:#F0EBE0;
+  --black:#0D0D0D;
+  --dark:#161616;
+  --mid:#242424;
+  --silver:#888;
+  --border:#333;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+}
+
+html,body{
+  width:100%;height:100%;
+  background:var(--black);
+  overflow:hidden;
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+  position:fixed;inset:0;
+  font-family:'Courier Prime',monospace;
+  color:var(--cream);
+}
+
+/* ── SCREENS ── */
+.screen{display:none;flex-direction:column;height:100%;}
+.screen.active{display:flex;}
+
+/* ── VIEWFINDER ── */
+#viewfinder{position:relative;flex:1;overflow:hidden;background:#000;}
+
+#video{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  object-fit:cover;
+  /* hardware acceleration */
+  transform:translateZ(0);
+  will-change:transform;
+}
+
+/* Filter canvas — draws ONLY on capture, hidden during live */
+#filterCanvas{display:none;}
+
+/* ── BRACKET CORNERS ── */
+.bracket{position:absolute;width:22px;height:22px;border-color:rgba(255,255,255,0.55);border-style:solid;pointer-events:none;z-index:6;}
+.bracket.tl{top:18px;left:18px;border-width:1.5px 0 0 1.5px;}
+.bracket.tr{top:18px;right:18px;border-width:1.5px 1.5px 0 0;}
+.bracket.bl{bottom:18px;left:18px;border-width:0 0 1.5px 1.5px;}
+.bracket.br{bottom:18px;right:18px;border-width:0 1.5px 1.5px 0;}
+
+/* ── AF BOX ── */
+#afBox{
+  position:absolute;
+  width:64px;height:64px;
+  border:1.5px solid rgba(255,255,255,0.9);
+  transform:translate(-50%,-50%);
+  pointer-events:none;z-index:8;
+  display:none;
+  transition:border-color 0.25s,width 0.2s,height 0.2s;
+}
+#afBox.focused{border-color:var(--red);}
+@keyframes afSnap{0%{width:90px;height:90px;opacity:.6;}100%{width:64px;height:64px;opacity:1;}}
+#afBox.snapping{animation:afSnap 0.25s ease-out forwards;}
+
+/* ── TOP HUD ── */
+.top-hud{
+  position:absolute;top:0;left:0;right:0;
+  padding:calc(var(--safe-top) + 12px) 16px 10px;
+  display:flex;align-items:center;justify-content:space-between;
+  z-index:10;
+  background:linear-gradient(to bottom,rgba(0,0,0,0.72) 0%,transparent 100%);
+}
+.leica-dot{width:10px;height:10px;background:var(--red);border-radius:50%;}
+.hud-brand{font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:300;letter-spacing:.35em;}
+.hud-brand span{color:var(--red);font-weight:500;}
+.mode-badge{font-size:9px;letter-spacing:.2em;color:var(--silver);border:1px solid var(--border);padding:3px 8px;text-transform:uppercase;}
+
+/* ── EXPOSURE STRIP ── */
+.exp-strip{
+  position:absolute;top:calc(var(--safe-top) + 52px);
+  left:0;right:0;
+  display:flex;justify-content:center;gap:24px;
+  z-index:10;padding:4px 0;
+}
+.exp-val{display:flex;flex-direction:column;align-items:center;gap:1px;}
+.exp-val .lbl{font-size:8px;letter-spacing:.18em;color:rgba(255,255,255,.38);text-transform:uppercase;}
+.exp-val .val{font-size:14px;color:rgba(255,255,255,.9);letter-spacing:.05em;}
+.exp-val .val.m{color:var(--red);}
+
+/* ── MODE PILLS (right side) ── */
+.mode-pills{
+  position:absolute;top:calc(var(--safe-top) + 96px);right:14px;
+  display:flex;flex-direction:column;gap:7px;z-index:10;
+}
+.pill{
+  background:rgba(0,0,0,0.65);
+  border:1px solid var(--border);
+  color:var(--silver);
+  font-family:'Courier Prime',monospace;
+  font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  padding:7px 10px;cursor:pointer;transition:all .2s;text-align:center;
+  -webkit-tap-highlight-color:transparent;
+}
+.pill.active{border-color:var(--red);color:var(--red);background:rgba(0,0,0,.8);}
+
+/* ── MANUAL DIALS ── */
+#manualPanel{
+  position:absolute;
+  bottom:calc(var(--safe-bottom) + 188px);
+  left:0;right:0;padding:0 14px;
+  z-index:10;display:none;
+}
+#manualPanel.show{display:block;}
+
+.dials{display:flex;gap:10px;}
+
+.dial{
+  flex:1;
+  background:rgba(0,0,0,0.82);
+  border:1px solid var(--border);
+  border-radius:2px;
+  padding:10px 6px 8px;
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+}
+.dial-lbl{font-size:8px;letter-spacing:.22em;color:var(--silver);text-transform:uppercase;}
+.dial-val{font-size:17px;font-weight:700;color:var(--red);letter-spacing:.04em;text-align:center;min-height:24px;line-height:1.4;}
+
+.dial-arrows{display:flex;width:100%;}
+.darr{
+  flex:1;background:none;border:none;
+  color:rgba(255,255,255,.55);font-size:22px;
+  cursor:pointer;padding:6px 0;text-align:center;
+  transition:color .15s;
+  /* large touch target */
+  min-height:44px;display:flex;align-items:center;justify-content:center;
+}
+.darr:active{color:var(--red);}
+
+/* ── BOTTOM CONTROLS ── */
+.bottom-ctrl{
+  position:absolute;bottom:0;left:0;right:0;
+  padding:12px 20px calc(var(--safe-bottom) + 24px);
+  z-index:10;
+  background:linear-gradient(to top,rgba(0,0,0,0.88) 0%,transparent 100%);
+}
+
+/* Filter tabs */
+.ftabs{display:flex;gap:18px;margin-bottom:10px;}
+.ftab{
+  font-size:9px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--silver);background:none;border:none;cursor:pointer;
+  padding-bottom:4px;border-bottom:1px solid transparent;transition:all .2s;
+}
+.ftab.active{color:var(--cream);border-bottom-color:var(--red);}
+
+/* Filter strip */
+.fstrip{display:flex;gap:9px;overflow-x:auto;scrollbar-width:none;padding:2px 1px 6px;}
+.fstrip::-webkit-scrollbar{display:none;}
+
+.fchip{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;}
+.fthumb{
+  width:50px;height:50px;border:1.5px solid transparent;
+  border-radius:2px;overflow:hidden;background:#1a1a1a;
+  position:relative;transition:border-color .2s;
+}
+.fchip.active .fthumb{border-color:var(--red);}
+.fthumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.fthumb .fn{
+  position:absolute;bottom:0;left:0;right:0;
+  font-size:7px;letter-spacing:.08em;text-align:center;
+  padding:2px;background:rgba(0,0,0,.65);color:rgba(255,255,255,.85);
+  text-transform:uppercase;
+}
+
+/* Shutter row */
+.shutter-row{display:flex;align-items:center;justify-content:space-between;margin-top:4px;}
+
+.side-btn{
+  width:52px;height:52px;border-radius:50%;
+  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);
+  color:var(--cream);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:2px;transition:all .2s;
+}
+.side-btn:active{background:rgba(255,255,255,.18);transform:scale(.94);}
+.side-btn .si{font-size:20px;line-height:1;}
+.side-btn .sl{font-size:7px;letter-spacing:.13em;color:var(--silver);text-transform:uppercase;}
+
+/* Shutter button */
+.shutter{
+  width:76px;height:76px;border-radius:50%;
+  background:var(--cream);border:none;cursor:pointer;
+  position:relative;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 0 4px rgba(255,255,255,.12),0 0 0 8px rgba(255,255,255,.05);
+  transition:transform .1s;
+}
+.shutter::before{content:'';width:58px;height:58px;border-radius:50%;background:#e4ddd0;position:absolute;}
+.shutter::after{content:'';width:40px;height:40px;border-radius:50%;background:var(--cream);position:absolute;}
+.shutter:active{transform:scale(.92);}
+@keyframes ring{0%{box-shadow:0 0 0 0 rgba(204,0,0,.8),0 0 0 4px rgba(255,255,255,.12);}100%{box-shadow:0 0 0 22px rgba(204,0,0,0),0 0 0 4px rgba(255,255,255,.12);}}
+.shutter.fire{animation:ring .4s ease-out;}
+
+/* Grid */
+.grid-ov{position:absolute;inset:0;display:none;pointer-events:none;z-index:5;}
+.grid-ov.show{display:block;}
+.grid-ov svg{width:100%;height:100%;opacity:.22;}
+
+/* Flash */
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:100;transition:opacity .06s;}
+#flash.pop{opacity:1;}
+
+/* Toast */
+#toast{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:rgba(0,0,0,.88);border:1px solid var(--border);
+  color:var(--cream);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  padding:10px 20px;z-index:300;opacity:0;pointer-events:none;transition:opacity .3s;text-align:center;
+}
+#toast.show{opacity:1;}
+
+/* Zoom badge */
+#zoomBadge{
+  position:absolute;bottom:calc(var(--safe-bottom)+182px);
+  left:50%;transform:translateX(-50%);
+  font-size:11px;letter-spacing:.1em;
+  color:rgba(255,255,255,.8);background:rgba(0,0,0,.55);
+  padding:3px 12px;border-radius:20px;z-index:10;
+  opacity:0;transition:opacity .5s;
+}
+#zoomBadge.show{opacity:1;transition:opacity 0s;}
+
+/* ── GALLERY ── */
+#galleryScreen{background:var(--black);overflow:hidden;}
+.gal-header{
+  padding:calc(var(--safe-top)+14px) 18px 12px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border);background:#111;
+}
+.gal-title{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:300;letter-spacing:.3em;}
+.gal-back{background:none;border:none;color:var(--cream);font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;}
+.gal-count{font-size:9px;color:var(--silver);letter-spacing:.2em;}
+.gal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;overflow-y:auto;flex:1;padding-bottom:calc(var(--safe-bottom)+8px);}
+.gal-grid::-webkit-scrollbar{display:none;}
+.gal-item{aspect-ratio:1;overflow:hidden;cursor:pointer;position:relative;background:var(--mid);}
+.gal-item img{width:100%;height:100%;object-fit:cover;display:block;}
+.gal-item .fbadge{position:absolute;bottom:3px;left:3px;font-size:7px;letter-spacing:.08em;background:rgba(0,0,0,.7);color:rgba(255,255,255,.8);padding:2px 4px;text-transform:uppercase;}
+.gal-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--silver);}
+.gal-empty svg{opacity:.2;}
+.gal-empty p{font-size:11px;letter-spacing:.2em;text-transform:uppercase;}
+
+/* Viewer */
+#viewer{display:none;position:fixed;inset:0;background:#000;z-index:200;flex-direction:column;align-items:center;justify-content:center;}
+#viewer.open{display:flex;}
+#viewerImg{max-width:100%;max-height:100%;object-fit:contain;}
+.viewer-bar{position:absolute;bottom:0;left:0;right:0;padding:14px 18px calc(var(--safe-bottom)+14px);display:flex;justify-content:space-between;align-items:center;background:linear-gradient(to top,rgba(0,0,0,.9) 0%,transparent 100%);}
+.v-close{background:none;border:none;color:var(--cream);font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;}
+.v-save{background:var(--red);border:none;color:#fff;font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;padding:8px 16px;cursor:pointer;}
+.v-meta{font-size:9px;letter-spacing:.12em;color:var(--silver);text-align:center;line-height:1.6;}
+</style>
+</head>
+<body>
+
+<div id="flash"></div>
+<div id="toast"></div>
+<canvas id="filterCanvas"></canvas>
+
+<!-- ══════════ CAMERA SCREEN ══════════ -->
+<div class="screen active" id="cameraScreen">
+  <div id="viewfinder">
+    <video id="video" autoplay playsinline muted></video>
+
+    <!-- HUD -->
+    <div class="top-hud">
+      <div class="leica-dot"></div>
+      <div class="hud-brand">LEITZ <span>M</span></div>
+      <div class="mode-badge" id="modeBadge">AUTO</div>
+    </div>
+
+    <!-- Exposure strip -->
+    <div class="exp-strip">
+      <div class="exp-val"><span class="lbl">f</span><span class="val" id="fDisp">2.0</span></div>
+      <div class="exp-val"><span class="lbl">S</span><span class="val" id="sDisp">1/125</span></div>
+      <div class="exp-val"><span class="lbl">ISO</span><span class="val" id="iDisp">400</span></div>
+    </div>
+
+    <!-- Mode pills -->
+    <div class="mode-pills">
+      <button class="pill active" id="pillA" onclick="setMode('auto')">A</button>
+      <button class="pill" id="pillM" onclick="setMode('manual')">M</button>
+      <button class="pill" id="pillG" onclick="toggleGrid()">⊞</button>
+    </div>
+
+    <!-- Manual dials -->
+    <div id="manualPanel">
+      <div class="dials">
+        <div class="dial">
+          <div class="dial-lbl">Aperture</div>
+          <div class="dial-val" id="fDial">f/2.0</div>
+          <div class="dial-arrows">
+            <button class="darr" ontouchstart="startDial('f',-1)" onmousedown="startDial('f',-1)">‹</button>
+            <button class="darr" ontouchstart="startDial('f',1)" onmousedown="startDial('f',1)">›</button>
+          </div>
+        </div>
+        <div class="dial">
+          <div class="dial-lbl">Shutter</div>
+          <div class="dial-val" id="sDial">1/125</div>
+          <div class="dial-arrows">
+            <button class="darr" ontouchstart="startDial('s',-1)" onmousedown="startDial('s',-1)">‹</button>
+            <button class="darr" ontouchstart="startDial('s',1)" onmousedown="startDial('s',1)">›</button>
+          </div>
+        </div>
+        <div class="dial">
+          <div class="dial-lbl">ISO</div>
+          <div class="dial-val" id="iDial">400</div>
+          <div class="dial-arrows">
+            <button class="darr" ontouchstart="startDial('iso',-1)" onmousedown="startDial('iso',-1)">‹</button>
+            <button class="darr" ontouchstart="startDial('iso',1)" onmousedown="startDial('iso',1)">›</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AF box -->
+    <div id="afBox"></div>
+
+    <!-- Grid -->
+    <div class="grid-ov" id="gridOv">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line x1="33.3" y1="0" x2="33.3" y2="100" stroke="white" stroke-width="0.3"/>
+        <line x1="66.6" y1="0" x2="66.6" y2="100" stroke="white" stroke-width="0.3"/>
+        <line x1="0" y1="33.3" x2="100" y2="33.3" stroke="white" stroke-width="0.3"/>
+        <line x1="0" y1="66.6" x2="100" y2="66.6" stroke="white" stroke-width="0.3"/>
+      </svg>
+    </div>
+
+    <!-- Corner brackets -->
+    <div class="bracket tl"></div><div class="bracket tr"></div>
+    <div class="bracket bl"></div><div class="bracket br"></div>
+
+    <!-- Zoom badge -->
+    <div id="zoomBadge">1×</div>
+
+    <!-- Bottom controls -->
+    <div class="bottom-ctrl">
+      <div class="ftabs">
+        <button class="ftab active" onclick="switchTab('color')">Color</button>
+        <button class="ftab" onclick="switchTab('mono')">Mono</button>
+        <button class="ftab" onclick="switchTab('off')">Off</button>
+      </div>
+      <div class="fstrip" id="fstrip"></div>
+      <div class="shutter-row">
+        <button class="side-btn" onclick="flipCam()">
+          <span class="si">⇄</span><span class="sl">Flip</span>
+        </button>
+        <button class="shutter" id="shutterBtn" onclick="capture()"></button>
+        <button class="side-btn" onclick="openGallery()">
+          <div id="galThumb" style="width:32px;height:32px;background:var(--mid);border-radius:2px;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:8px;color:var(--silver);">GAL</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ GALLERY SCREEN ══════════ -->
+<div class="screen" id="galleryScreen">
+  <div class="gal-header">
+    <button class="gal-back" onclick="closeGallery()">← Back</button>
+    <div class="gal-title">Archive</div>
+    <div class="gal-count" id="galCount">0 frames</div>
+  </div>
+  <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;">
+    <div class="gal-empty" id="galEmpty">
+      <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
+        <rect x="4" y="10" width="40" height="28" rx="2" stroke="#888" stroke-width="1.5"/>
+        <circle cx="24" cy="24" r="8" stroke="#888" stroke-width="1.5"/>
+        <circle cx="24" cy="24" r="3" fill="#888"/>
+      </svg>
+      <p>No frames yet</p>
+    </div>
+    <div class="gal-grid" id="galGrid" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- ══════════ PHOTO VIEWER ══════════ -->
+<div id="viewer">
+  <img id="viewerImg" src="" alt="">
+  <div class="viewer-bar">
+    <button class="v-close" onclick="closeViewer()">← Close</button>
+    <div class="v-meta" id="viewerMeta"></div>
+    <button class="v-save" onclick="savePhoto()">Save ↓</button>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────
+let stream = null;
+let facing = 'environment';
+let mode = 'auto';          // 'auto' | 'manual'
+let tab = 'color';
+let activeFilter = 'classic';
+let photos = [];
+let viewerIdx = -1;
+let isCapturing = false;
+let gridOn = false;
+let zoomLvl = 1;
+let zoomTimer = null;
+let afTimer = null;
+let thumbDataURL = null;   // a single low-res snapshot for filter thumbs
+
+// Load saved photos
+try { photos = JSON.parse(localStorage.getItem('leitz-photos') || '[]'); } catch(e) { photos = []; }
+
+// ─────────────────────────────────────────
+// EXPOSURE VALUES
+// ─────────────────────────────────────────
+const F_STOPS  = ['1.0','1.4','1.7','2.0','2.4','2.8','4.0','5.6','8','11','16'];
+const SHUTTERS = ['1/4000','1/2000','1/1000','1/500','1/250','1/125','1/60','1/30','1/15','1/8','1/4','1/2','1"'];
+const ISO_VALS = ['50','100','200','400','800','1600','3200','6400'];
+
+let fIdx   = 3;   // 2.0
+let sIdx   = 5;   // 1/125
+let isoIdx = 3;   // 400
+
+function updateDialDisplays() {
+  document.getElementById('fDial').textContent  = 'f/' + F_STOPS[fIdx];
+  document.getElementById('sDial').textContent  = SHUTTERS[sIdx];
+  document.getElementById('iDial').textContent  = ISO_VALS[isoIdx];
+  document.getElementById('fDisp').textContent  = F_STOPS[fIdx];
+  document.getElementById('sDisp').textContent  = SHUTTERS[sIdx];
+  document.getElementById('iDisp').textContent  = ISO_VALS[isoIdx];
+}
+
+// startDial handles both touch and mouse with repeat on hold
+let dialInterval = null;
+
+function startDial(type, dir) {
+  stepDial(type, dir);                         // immediate step
+  clearInterval(dialInterval);
+  dialInterval = setInterval(() => stepDial(type, dir), 220);  // repeat while held
+  const stop = () => { clearInterval(dialInterval); dialInterval = null; };
+  document.addEventListener('touchend',  stop, {once:true});
+  document.addEventListener('mouseup',   stop, {once:true});
+}
+
+function stepDial(type, dir) {
+  if (type === 'f')   { fIdx   = Math.max(0, Math.min(F_STOPS.length-1,  fIdx+dir)); }
+  if (type === 's')   { sIdx   = Math.max(0, Math.min(SHUTTERS.length-1, sIdx+dir)); }
+  if (type === 'iso') { isoIdx = Math.max(0, Math.min(ISO_VALS.length-1, isoIdx+dir)); }
+  updateDialDisplays();
+}
+
+// ─────────────────────────────────────────
+// FILTERS
+// ─────────────────────────────────────────
+const COLOR_FILTERS = [
+  { id:'classic',  name:'Classic M', p:{ ex:5,  co:15, hi:-10, sh:10, tmp:-5,  ti:5,  sat:5,  vib:10, red:20, grn:-15, lift:12, grain:18, vig:-30 }},
+  { id:'summilux', name:'Summilux',  p:{ ex:10, co:20, hi:-20, sh:15, tmp:10,  ti:0,  sat:8,  vib:15, red:25, grn:-10, lift:8,  grain:14, vig:-40 }},
+  { id:'noctilux', name:'Noctilux', p:{ ex:-5, co:30, hi:-30, sh:-10,tmp:-10, ti:-5, sat:-10,vib:5,  red:10, grn:-20, lift:20, grain:32, vig:-60 }},
+  { id:'elmarit',  name:'Elmarit',   p:{ ex:0,  co:10, hi:0,   sh:5,  tmp:0,   ti:10, sat:-5, vib:8,  red:15, grn:-20, lift:10, grain:8,  vig:-20 }},
+  { id:'portra',   name:'Portra',    p:{ ex:5,  co:5,  hi:-5,  sh:20, tmp:15,  ti:-5, sat:10, vib:20, red:30, grn:-5,  lift:20, grain:22, vig:-20 }},
+  { id:'velvia',   name:'Velvia',    p:{ ex:0,  co:25, hi:-10, sh:5,  tmp:5,   ti:0,  sat:30, vib:25, red:15, grn:10,  lift:5,  grain:6,  vig:-25 }},
+];
+
+const MONO_FILTERS = [
+  { id:'m_leica',  name:'Leica M',   p:{ mono:true, ex:0,  co:15, hi:-5,  sh:10, lift:15, grain:22, vig:-35, tone:0 }},
+  { id:'m_hc',     name:'Hi-Cont',   p:{ mono:true, ex:5,  co:50, hi:-25, sh:-15,lift:6,  grain:18, vig:-55, tone:0 }},
+  { id:'m_q',      name:'Mono Q',    p:{ mono:true, ex:-5, co:38, hi:-22, sh:5,  lift:10, grain:12, vig:-42, tone:0 }},
+  { id:'m_deep',   name:'Deep',      p:{ mono:true, ex:-8, co:55, hi:-30, sh:-20,lift:4,  grain:8,  vig:-65, tone:0 }},
+  { id:'m_warm',   name:'Warm BW',   p:{ mono:true, ex:0,  co:20, hi:-10, sh:10, lift:12, grain:28, vig:-30, tone:8 }},
+  { id:'m_cool',   name:'Cool BW',   p:{ mono:true, ex:2,  co:18, hi:-5,  sh:8,  lift:14, grain:18, vig:-30, tone:-8}},
+  { id:'m_silver', name:'Silver',    p:{ mono:true, ex:5,  co:8,  hi:5,   sh:25, lift:28, grain:38, vig:-20, tone:4 }},
+];
+
+function allFilters() { return [...COLOR_FILTERS, ...MONO_FILTERS]; }
+
+function getActiveParams() {
+  const f = allFilters().find(f => f.id === activeFilter);
+  return f ? f.p : null;
+}
+
+// ─────────────────────────────────────────
+// PIXEL FILTER ENGINE
+// ─────────────────────────────────────────
+function clamp(v){ return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+function applyFilter(ctx, W, H, p) {
+  if (!p) return;
+
+  const img = ctx.getImageData(0, 0, W, H);
+  const d   = img.data;
+
+  const expF = Math.pow(2, (p.ex||0) / 50);
+  const coF  = 1 + (p.co||0) / 100;
+  const hiF  = (p.hi||0) / 200;
+  const shF  = (p.sh||0) / 200;
+  const tmpS = (p.tmp||0) / 100 * 28;
+  const tiS  = (p.ti||0)  / 100 * 12;
+  const satF = 1 + (p.sat||0) / 100;
+  const vibF = (p.vib||0) / 200;
+  const redB = (p.red||0) / 100 * 38;
+  const grnM = (p.grn||0) / 100 * 28;
+  const lftA = (p.lift||0)/ 100 * 20;
+
+  for (let i = 0; i < d.length; i += 4) {
+    let r = d[i], g = d[i+1], b = d[i+2];
+
+    // Exposure
+    r *= expF; g *= expF; b *= expF;
+
+    // Highlights / shadows
+    const lum = 0.299*r + 0.587*g + 0.114*b;
+    const hi  = lum / 255, sh = 1 - hi;
+    r += hiF*hi*r + shF*sh*(255-r);
+    g += hiF*hi*g + shF*sh*(255-g);
+    b += hiF*hi*b + shF*sh*(255-b);
+
+    // Contrast
+    r = (r-128)*coF+128;
+    g = (g-128)*coF+128;
+    b = (b-128)*coF+128;
+
+    // Temp & tint
+    r += tmpS; b -= tmpS; g += tiS;
+
+    // Leica red boost
+    if (r > g && r > b) r += redB*(r - Math.max(g,b))/255;
+    // Green mute
+    const exG = Math.max(0, g - Math.max(r,b));
+    g -= grnM*exG/255;
+
+    // Shadow lift (raised blacks)
+    const lum2 = 0.299*r + 0.587*g + 0.114*b;
+    if (lum2 < 80) { const f2=(80-lum2)/80; r+=lftA*f2; g+=lftA*f2*.92; b+=lftA*f2*1.08; }
+
+    // Saturation
+    const avg = (r+g+b)/3;
+    r = avg+(r-avg)*satF; g = avg+(g-avg)*satF; b = avg+(b-avg)*satF;
+
+    // Vibrance
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+    const sat2 = mx ? (mx-mn)/mx : 0;
+    const vB   = 1 + vibF*(1-sat2);
+    const avg2 = (r+g+b)/3;
+    r = avg2+(r-avg2)*vB; g = avg2+(g-avg2)*vB; b = avg2+(b-avg2)*vB;
+
+    // Monochrome
+    if (p.mono) {
+      const grey = 0.213*r + 0.715*g + 0.072*b;
+      const tone = p.tone || 0;
+      r = grey + tone*.5;
+      g = grey;
+      b = grey - tone*.5;
+    }
+
+    d[i]=clamp(r); d[i+1]=clamp(g); d[i+2]=clamp(b);
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Vignette
+  if (p.vig) {
+    const alpha = Math.abs(p.vig)/100;
+    const v = ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.28, W/2,H/2,Math.max(W,H)*.76);
+    v.addColorStop(0,'rgba(0,0,0,0)');
+    v.addColorStop(1, p.vig<0 ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha})`);
+    ctx.fillStyle = v; ctx.fillRect(0,0,W,H);
+  }
+
+  // Grain (applied lightly — skip on preview thumbs for speed)
+  if (p.grain > 0 && W > 100) {
+    const gd = ctx.getImageData(0,0,W,H), dd = gd.data;
+    const amt = p.grain * 1.1;
+    for (let i=0; i<dd.length; i+=4) {
+      const n = (Math.random()-.5)*amt;
+      dd[i]=clamp(dd[i]+n); dd[i+1]=clamp(dd[i+1]+n); dd[i+2]=clamp(dd[i+2]+n);
+    }
+    ctx.putImageData(gd,0,0);
+  }
+}
+
+// ─────────────────────────────────────────
+// FILTER STRIP
+// ─────────────────────────────────────────
+function buildStrip() {
+  const strip = document.getElementById('fstrip');
+  strip.innerHTML = '';
+  const list = tab === 'color' ? COLOR_FILTERS : tab === 'mono' ? MONO_FILTERS : [];
+
+  if (tab === 'off') {
+    activeFilter = 'off';
+    return;
+  }
+
+  // Grab a single thumb snapshot from video (once)
+  const video = document.getElementById('video');
+  const TC = 52, TCH = 52;
+  let snapData = null;
+  if (video.readyState >= 2) {
+    const tc = document.createElement('canvas');
+    tc.width = TC; tc.height = TCH;
+    const tctx = tc.getContext('2d');
+    tctx.drawImage(video, 0, 0, TC, TCH);
+    snapData = tctx.getImageData(0, 0, TC, TCH);
+  }
+
+  list.forEach(f => {
+    const chip = document.createElement('div');
+    chip.className = 'fchip' + (f.id === activeFilter ? ' active' : '');
+    chip.dataset.id = f.id;
+
+    const thumb = document.createElement('div');
+    thumb.className = 'fthumb';
+
+    const c = document.createElement('canvas');
+    c.width = TC; c.height = TCH;
+    const cctx = c.getContext('2d');
+
+    if (snapData) {
+      // Clone imagedata so filters don't bleed
+      const clone = new ImageData(new Uint8ClampedArray(snapData.data), TC, TCH);
+      cctx.putImageData(clone, 0, 0);
+      // Apply filter but skip grain for speed
+      const pCopy = Object.assign({}, f.p, { grain: 0 });
+      applyFilter(cctx, TC, TCH, pCopy);
+    } else {
+      cctx.fillStyle = '#222';
+      cctx.fillRect(0,0,TC,TCH);
+    }
+
+    const img = document.createElement('img');
+    img.src = c.toDataURL('image/jpeg', 0.7);
+
+    const fn = document.createElement('div');
+    fn.className = 'fn';
+    fn.textContent = f.name;
+
+    thumb.appendChild(img);
+    thumb.appendChild(fn);
+    chip.appendChild(thumb);
+    chip.addEventListener('click', () => selectFilter(f.id));
+    strip.appendChild(chip);
+  });
+}
+
+function selectFilter(id) {
+  activeFilter = id;
+  document.querySelectorAll('.fchip').forEach(c => c.classList.toggle('active', c.dataset.id === id));
+}
+
+function switchTab(t) {
+  tab = t;
+  document.querySelectorAll('.ftab').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().startsWith(t.substring(0,4))));
+  activeFilter = t === 'color' ? 'classic' : t === 'mono' ? 'm_leica' : 'off';
+  buildStrip();
+}
+
+// ─────────────────────────────────────────
+// CAMERA
+// ─────────────────────────────────────────
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: facing,
+        width:  { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+      audio: false
+    });
+    const v = document.getElementById('video');
+    v.srcObject = stream;
+    await v.play();
+  } catch(e) {
+    toast('Camera access denied');
+  }
+}
+
+async function flipCam() {
+  facing = facing === 'environment' ? 'user' : 'environment';
+  await startCamera();
+  setTimeout(buildStrip, 600);
+}
+
+// ─────────────────────────────────────────
+// MODE
+// ─────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.getElementById('pillA').classList.toggle('active', m === 'auto');
+  document.getElementById('pillM').classList.toggle('active', m === 'manual');
+  document.getElementById('modeBadge').textContent = m.toUpperCase();
+  document.getElementById('manualPanel').classList.toggle('show', m === 'manual');
+
+  // Colour the HUD values red in manual
+  ['fDisp','sDisp','iDisp'].forEach(id => {
+    document.getElementById(id).classList.toggle('m', m === 'manual');
+  });
+
+  // Try to apply focus mode to track
+  if (stream) {
+    const track = stream.getVideoTracks()[0];
+    if (track && track.getCapabilities) {
+      const caps = track.getCapabilities();
+      if (caps.focusMode) {
+        track.applyConstraints({ advanced: [{ focusMode: m === 'auto' ? 'continuous' : 'manual' }] }).catch(()=>{});
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────
+// GRID
+// ─────────────────────────────────────────
+function toggleGrid() {
+  gridOn = !gridOn;
+  document.getElementById('gridOv').classList.toggle('show', gridOn);
+  document.getElementById('pillG').classList.toggle('active', gridOn);
+}
+
+// ─────────────────────────────────────────
+// TAP TO FOCUS
+// ─────────────────────────────────────────
+document.getElementById('viewfinder').addEventListener('click', async e => {
+  // Ignore clicks on controls
+  if (e.target.closest('.bottom-ctrl,.top-hud,.mode-pills,#manualPanel')) return;
+
+  const rect = document.getElementById('viewfinder').getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  const box = document.getElementById('afBox');
+  box.style.left = x + 'px';
+  box.style.top  = y + 'px';
+  box.style.display = 'block';
+  box.classList.remove('focused','snapping');
+  void box.offsetWidth; // reflow to restart animation
+  box.classList.add('snapping');
+
+  // Try hardware AF point
+  if (stream) {
+    const track = stream.getVideoTracks()[0];
+    if (track && track.getCapabilities) {
+      const caps = track.getCapabilities();
+      if (caps.focusPointsOfInterest) {
+        try {
+          await track.applyConstraints({ advanced: [{
+            focusMode: 'single-shot',
+            focusPointsOfInterest: [{ x: x/rect.width, y: y/rect.height }]
+          }]});
+        } catch(e) {}
+      }
+    }
+  }
+
+  clearTimeout(afTimer);
+  afTimer = setTimeout(() => {
+    box.classList.add('focused');
+    setTimeout(() => { box.style.display = 'none'; }, 1800);
+  }, 350);
+});
+
+// ─────────────────────────────────────────
+// PINCH ZOOM
+// ─────────────────────────────────────────
+let pinchStart = null, pinchZoom = 1;
+
+document.getElementById('viewfinder').addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    pinchStart = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+    pinchZoom  = zoomLvl;
+  }
+}, { passive: true });
+
+document.getElementById('viewfinder').addEventListener('touchmove', async e => {
+  if (e.touches.length !== 2 || !pinchStart) return;
+  const dist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+  zoomLvl = Math.max(1, Math.min(6, pinchZoom * dist / pinchStart));
+
+  if (stream) {
+    const track = stream.getVideoTracks()[0];
+    if (track && track.getCapabilities) {
+      const caps = track.getCapabilities();
+      if (caps.zoom) {
+        const z = Math.max(caps.zoom.min, Math.min(caps.zoom.max, zoomLvl));
+        track.applyConstraints({ advanced: [{ zoom: z }] }).catch(()=>{});
+      }
+    }
+  }
+
+  const badge = document.getElementById('zoomBadge');
+  badge.textContent = zoomLvl.toFixed(1) + '×';
+  badge.classList.add('show');
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(() => badge.classList.remove('show'), 1400);
+}, { passive: true });
+
+document.getElementById('viewfinder').addEventListener('touchend', () => { pinchStart = null; }, { passive: true });
+
+// ─────────────────────────────────────────
+// CAPTURE
+// ─────────────────────────────────────────
+async function capture() {
+  if (isCapturing || !stream) return;
+  isCapturing = true;
+
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('filterCanvas');
+  const ctx    = canvas.getContext('2d');
+
+  // Full native resolution
+  canvas.width  = video.videoWidth  || 1920;
+  canvas.height = video.videoHeight || 1080;
+
+  // Shutter animation
+  const btn = document.getElementById('shutterBtn');
+  btn.classList.add('fire');
+  setTimeout(() => btn.classList.remove('fire'), 450);
+
+  // Flash
+  const fl = document.getElementById('flash');
+  fl.classList.add('pop');
+  setTimeout(() => fl.classList.remove('pop'), 100);
+
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  // Apply filter
+  const p = getActiveParams();
+  if (p) applyFilter(ctx, canvas.width, canvas.height, p);
+
+  const dataURL = canvas.toDataURL('image/jpeg', 0.92);
+
+  const meta = {
+    id:     Date.now(),
+    filter: activeFilter,
+    mode,
+    f:      mode==='manual' ? 'f/'+F_STOPS[fIdx]  : 'AUTO',
+    s:      mode==='manual' ? SHUTTERS[sIdx]       : 'AUTO',
+    iso:    mode==='manual' ? 'ISO '+ISO_VALS[isoIdx] : 'AUTO',
+    ts:     new Date().toISOString(),
+    dataURL
+  };
+
+  photos.unshift(meta);
+  persistPhotos();
+  updateGalThumb(dataURL);
+  toast('Frame saved');
+  isCapturing = false;
+}
+
+function persistPhotos() {
+  const trimmed = photos.slice(0, 60);
+  photos = trimmed;
+  try { localStorage.setItem('leitz-photos', JSON.stringify(trimmed)); } catch(e) {
+    photos = photos.slice(0,30);
+    try { localStorage.setItem('leitz-photos', JSON.stringify(photos)); } catch(e2) {}
+  }
+}
+
+function updateGalThumb(url) {
+  document.getElementById('galThumb').innerHTML =
+    `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:2px;">`;
+}
+
+// ─────────────────────────────────────────
+// GALLERY
+// ─────────────────────────────────────────
+function openGallery() {
+  document.getElementById('cameraScreen').classList.remove('active');
+  document.getElementById('galleryScreen').classList.add('active');
+  renderGallery();
+}
+
+function closeGallery() {
+  document.getElementById('galleryScreen').classList.remove('active');
+  document.getElementById('cameraScreen').classList.add('active');
+  setTimeout(buildStrip, 300);
+}
+
+function renderGallery() {
+  const grid  = document.getElementById('galGrid');
+  const empty = document.getElementById('galEmpty');
+  document.getElementById('galCount').textContent = photos.length + (photos.length===1?' frame':' frames');
+
+  if (!photos.length) { empty.style.display='flex'; grid.style.display='none'; return; }
+  empty.style.display='none'; grid.style.display='grid';
+  grid.innerHTML = '';
+
+  photos.forEach((p, idx) => {
+    const item = document.createElement('div');
+    item.className = 'gal-item';
+    const img = document.createElement('img');
+    img.src = p.dataURL; img.loading = 'lazy';
+    const badge = document.createElement('div');
+    badge.className = 'fbadge';
+    badge.textContent = p.filter.replace('m_','').replace('_c','').substring(0,8);
+    item.appendChild(img); item.appendChild(badge);
+    item.addEventListener('click', () => openViewer(idx));
+    grid.appendChild(item);
+  });
+}
+
+// ─────────────────────────────────────────
+// VIEWER
+// ─────────────────────────────────────────
+function openViewer(idx) {
+  viewerIdx = idx;
+  const p = photos[idx];
+  document.getElementById('viewerImg').src = p.dataURL;
+  document.getElementById('viewerMeta').innerHTML =
+    `${p.filter.toUpperCase()} &nbsp;·&nbsp; ${p.f} &nbsp;·&nbsp; ${p.s} &nbsp;·&nbsp; ${p.iso}` +
+    `<br><span style="font-size:8px;opacity:.5;">${new Date(p.ts).toLocaleString()}</span>`;
+  document.getElementById('viewer').classList.add('open');
+}
+
+function closeViewer() {
+  document.getElementById('viewer').classList.remove('open');
+}
+
+function savePhoto() {
+  if (viewerIdx < 0) return;
+  const a = document.createElement('a');
+  a.href     = photos[viewerIdx].dataURL;
+  a.download = `leitz-${photos[viewerIdx].id}.jpg`;
+  a.click();
+  toast('Saved to device');
+}
+
+// ─────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1700);
+}
+
+// ─────────────────────────────────────────
+// PWA + BOOT
+// ─────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+}
+
+if ('wakeLock' in navigator) {
+  const lock = () => navigator.wakeLock.request('screen').catch(()=>{});
+  lock();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState==='visible') lock(); });
+}
+
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+window.addEventListener('load', async () => {
+  updateDialDisplays();
+
+  if (navigator.mediaDevices?.getUserMedia) {
+    await startCamera();
+    // Build filter strip once video has first frame
+    const v = document.getElementById('video');
+    const ready = () => { setTimeout(buildStrip, 200); };
+    if (v.readyState >= 2) ready();
+    else v.addEventListener('loadeddata', ready, { once: true });
+  } else {
+    toast('Camera not available');
+  }
+
+  if (photos.length) updateGalThumb(photos[0].dataURL);
+});
+</script>
+</body>
+</html>
