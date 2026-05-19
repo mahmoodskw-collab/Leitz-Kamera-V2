@@ -62,15 +62,70 @@ html,body{
 .bracket.bl{bottom:18px;left:18px;border-width:0 0 1.5px 1.5px;}
 .bracket.br{bottom:18px;right:18px;border-width:0 1.5px 1.5px 0;}
 
-/* AF */
+/* AF + EV cluster */
+#afCluster{
+  position:absolute;
+  transform:translate(-50%,-50%);
+  z-index:8;display:none;
+  /* cluster is pointer-events:auto so the slider is touchable */
+}
+
 #afBox{
-  position:absolute;width:64px;height:64px;
+  width:64px;height:64px;
   border:1.5px solid rgba(255,255,255,.9);
-  transform:translate(-50%,-50%);pointer-events:none;z-index:8;display:none;
+  pointer-events:none;
+  transition:border-color .25s;
 }
 #afBox.focused{border-color:var(--red);}
-@keyframes afSnap{0%{width:90px;height:90px;opacity:.5;}100%{width:64px;height:64px;opacity:1;}}
-#afBox.snap{animation:afSnap .25s ease-out forwards;}
+@keyframes afSnap{0%{transform:scale(1.4);opacity:.5;}100%{transform:scale(1);opacity:1;}}
+#afBox.snap{animation:afSnap .22s ease-out forwards;}
+
+/* EV slider — appears to the right of the AF box */
+#evSliderWrap{
+  position:absolute;
+  left:calc(100% + 12px);
+  top:50%;transform:translateY(-50%);
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
+  opacity:0;
+  transition:opacity .3s;
+}
+#evSliderWrap.show{display:flex;opacity:1;}
+
+#evSliderWrap .ev-sun{font-size:16px;line-height:1;}
+#evSliderWrap .ev-sun.top{margin-bottom:2px;}
+#evSliderWrap .ev-sun.bot{margin-top:2px;}
+
+#evSlider{
+  -webkit-appearance:slider-vertical;
+  writing-mode:vertical-lr;
+  direction:rtl;
+  width:28px;
+  height:120px;
+  cursor:pointer;
+  accent-color:var(--red);
+  background:transparent;
+}
+/* Fallback for browsers that don't support slider-vertical */
+@supports not (-webkit-appearance:slider-vertical){
+  #evSlider{
+    writing-mode:unset;
+    -webkit-appearance:none;
+    appearance:none;
+    width:120px;height:28px;
+    transform:rotate(-90deg);
+  }
+}
+
+#evReadout{
+  font-size:10px;font-weight:700;
+  color:var(--red);letter-spacing:.05em;
+  text-align:center;min-width:32px;
+  background:rgba(0,0,0,.6);
+  padding:2px 4px;border-radius:2px;
+}
 
 /* Top HUD */
 .top-hud{
@@ -428,7 +483,19 @@ html,body{
       </div>
     </div>
 
-    <div id="afBox"></div>
+    <!-- AF + EV cluster -->
+    <div id="afCluster">
+      <div id="afBox"></div>
+      <div id="evSliderWrap">
+        <span class="ev-sun top">☀</span>
+        <input type="range" id="evSlider" min="-3" max="3" step="0.1" value="0"
+               oninput="onEvSlider(this.value)"
+               ontouchstart="event.stopPropagation()"
+               ontouchmove="event.stopPropagation()">
+        <span class="ev-sun bot">☾</span>
+        <div id="evReadout">0.0</div>
+      </div>
+    </div>
 
     <div class="grid-ov" id="gridOv">
       <svg viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -769,7 +836,9 @@ function startLivePreview(){
     }
 
     ctx.drawImage(video,0,0,W,H);
-    applyFilter(ctx,W,H,p,true); // skipGrain=true for live preview
+    // Merge EV compensation into filter params
+    const pWithEV = p ? Object.assign({}, p, {ex: (p.ex||0) + evCompensation*20}) : null;
+    applyFilter(ctx,W,H,pWithEV,true); // skipGrain=true for live preview
     canvas.style.display='block';
   }
 
@@ -874,6 +943,10 @@ async function startCamera(){
 
 async function flipCam(){
   facing=facing==='environment'?'user':'environment';
+  evCompensation=0;
+  document.getElementById('evSlider').value=0;
+  document.getElementById('evReadout').textContent='0.0';
+  hideAfCluster();
   await startCamera();
   setTimeout(buildStrip,600);
 }
@@ -908,33 +981,91 @@ function toggleGrid(){
 }
 
 // ════════════════════════════════════════
-// TAP TO FOCUS
+// TAP TO FOCUS + EXPOSURE
 // ════════════════════════════════════════
-document.getElementById('viewfinder').addEventListener('click',async e=>{
-  if(e.target.closest('.bottom-ctrl,.top-hud,.mode-pills,#manualPanel')) return;
-  const rect=document.getElementById('viewfinder').getBoundingClientRect();
-  const x=e.clientX-rect.left, y=e.clientY-rect.top;
-  const box=document.getElementById('afBox');
-  box.style.left=x+'px'; box.style.top=y+'px';
-  box.style.display='block';
+let evCompensation = 0;   // current EV offset (-3 … +3)
+let afHideTimer = null;
+
+document.getElementById('viewfinder').addEventListener('click', async e=>{
+  if(e.target.closest('.bottom-ctrl,.top-hud,.mode-pills,#manualPanel,#afCluster')) return;
+
+  const vf   = document.getElementById('viewfinder');
+  const rect = vf.getBoundingClientRect();
+  const x    = e.clientX - rect.left;
+  const y    = e.clientY - rect.top;
+
+  // Position the cluster
+  const cluster = document.getElementById('afCluster');
+  cluster.style.left    = x + 'px';
+  cluster.style.top     = y + 'px';
+  cluster.style.display = 'block';
+
+  // AF snap animation
+  const box = document.getElementById('afBox');
   box.classList.remove('focused','snap');
   void box.offsetWidth;
   box.classList.add('snap');
+
+  // Show EV slider
+  const evWrap = document.getElementById('evSliderWrap');
+  evWrap.classList.add('show');
+
+  // Try hardware focus point
   if(stream){
-    const track=stream.getVideoTracks()[0];
-    if(track&&track.getCapabilities){
-      const caps=track.getCapabilities();
+    const track = stream.getVideoTracks()[0];
+    if(track && track.getCapabilities){
+      const caps = track.getCapabilities();
       if(caps.focusPointsOfInterest){
-        track.applyConstraints({advanced:[{focusMode:'single-shot',focusPointsOfInterest:[{x:x/rect.width,y:y/rect.height}]}]}).catch(()=>{});
+        track.applyConstraints({advanced:[{
+          focusMode:'single-shot',
+          focusPointsOfInterest:[{x: x/rect.width, y: y/rect.height}]
+        }]}).catch(()=>{});
       }
     }
   }
+
   clearTimeout(afTimer);
-  afTimer=setTimeout(()=>{
+  afTimer = setTimeout(()=>{
     box.classList.add('focused');
-    setTimeout(()=>{ box.style.display='none'; },1800);
-  },320);
+  }, 320);
+
+  // Auto-hide after 5 s of inactivity
+  resetAfHideTimer();
 });
+
+function resetAfHideTimer(){
+  clearTimeout(afHideTimer);
+  afHideTimer = setTimeout(hideAfCluster, 5000);
+}
+
+function hideAfCluster(){
+  const cluster = document.getElementById('afCluster');
+  cluster.style.display = 'none';
+  document.getElementById('evSliderWrap').classList.remove('show');
+  document.getElementById('afBox').classList.remove('focused','snap');
+}
+
+function onEvSlider(val){
+  evCompensation = parseFloat(val);
+  const readout  = document.getElementById('evReadout');
+  readout.textContent = (evCompensation >= 0 ? '+' : '') + evCompensation.toFixed(1);
+
+  // Apply via hardware exposureCompensation where supported
+  if(stream){
+    const track = stream.getVideoTracks()[0];
+    if(track && track.getCapabilities){
+      const caps = track.getCapabilities();
+      if(caps.exposureCompensation){
+        const min = caps.exposureCompensation.min;
+        const max = caps.exposureCompensation.max;
+        const clamped = Math.max(min, Math.min(max, evCompensation));
+        track.applyConstraints({advanced:[{exposureCompensation: clamped}]}).catch(()=>{});
+      }
+    }
+  }
+  // Reset hide timer whenever user interacts with slider
+  resetAfHideTimer();
+}
 
 // ════════════════════════════════════════
 // PINCH ZOOM
@@ -990,7 +1121,9 @@ async function capture(){
 
   ctx.drawImage(video,0,0,canvas.width,canvas.height);
   const p=getActiveParams();
-  if(p) applyFilter(ctx,canvas.width,canvas.height,p,false); // include grain on capture
+  // Merge EV compensation: each EV stop ≈ 20 units in our exposure scale
+  const pWithEV = p ? Object.assign({}, p, {ex: (p.ex||0) + evCompensation*20}) : null;
+  if(pWithEV) applyFilter(ctx,canvas.width,canvas.height,pWithEV,false);
 
   // JPEG quality 0.88 — good quality, ~400-600KB per shot, far below IndexedDB limits
   const dataURL=canvas.toDataURL('image/jpeg',0.88);
