@@ -36,8 +36,29 @@ html,body{
 .screen{display:none;flex-direction:column;height:100%;}
 .screen.active{display:flex;}
 
-/* ── VIEWFINDER ── */
-#viewfinder{position:relative;flex:1;overflow:hidden;background:#000;}
+/* ── VIEWFINDER — 4:5 portrait crop ── */
+#vfWrap{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  background:#000;
+  overflow:hidden;
+  position:relative;
+}
+
+#viewfinder{
+  position:relative;
+  overflow:hidden;
+  background:#000;
+  width:100%;
+  /* 4:5 aspect ratio */
+  aspect-ratio:4/5;
+  /* cap height so bottom controls are always visible */
+  max-height:calc(100dvh - 185px);
+  flex-shrink:0;
+  align-self:center;
+}
 
 #video{
   position:absolute;inset:0;width:100%;height:100%;
@@ -164,10 +185,14 @@ html,body{
 }
 .pill.active{border-color:var(--red);color:var(--red);background:rgba(0,0,0,.8);}
 
-/* Manual dials */
+/* Manual dials — static flow, between viewfinder and bottom controls */
 #manualPanel{
-  position:absolute;bottom:calc(var(--safe-bottom) + 188px);
-  left:0;right:0;padding:0 14px;z-index:10;display:none;
+  background:#111;
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  padding:8px 14px;
+  display:none;
+  flex-shrink:0;
 }
 #manualPanel.show{display:block;}
 .dials{display:flex;gap:10px;}
@@ -187,12 +212,11 @@ html,body{
 }
 .darr:active{color:var(--red);}
 
-/* Bottom controls */
+/* Bottom controls — static flow below viewfinder */
 .bottom-ctrl{
-  position:absolute;bottom:0;left:0;right:0;
-  padding:10px 16px calc(var(--safe-bottom) + 20px);
-  z-index:10;
-  background:linear-gradient(to top,rgba(0,0,0,.9) 0%,transparent 100%);
+  background:#0D0D0D;
+  padding:10px 16px calc(var(--safe-bottom) + 12px);
+  flex-shrink:0;
 }
 
 /* Filter tabs */
@@ -431,110 +455,113 @@ html,body{
 
 <!-- ══ CAMERA ══ -->
 <div class="screen active" id="cameraScreen">
-  <div id="viewfinder">
-    <video id="video" autoplay playsinline muted></video>
-    <!-- Live filter preview canvas -->
-    <canvas id="liveCanvas"></canvas>
 
-    <div class="top-hud">
-      <div class="leica-dot"></div>
-      <div class="hud-brand">LEITZ <span>M</span></div>
-      <div class="mode-badge" id="modeBadge">AUTO</div>
-    </div>
+  <!-- 4:5 viewfinder wrapper -->
+  <div id="vfWrap">
+    <div id="viewfinder">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="liveCanvas"></canvas>
 
-    <div class="exp-strip">
-      <div class="exp-val"><span class="lbl">f</span><span class="val" id="fDisp">2.0</span></div>
-      <div class="exp-val"><span class="lbl">S</span><span class="val" id="sDisp">1/125</span></div>
-      <div class="exp-val"><span class="lbl">ISO</span><span class="val" id="iDisp">400</span></div>
-    </div>
+      <div class="top-hud">
+        <div class="leica-dot"></div>
+        <div class="hud-brand">LEITZ <span>M</span></div>
+        <div class="mode-badge" id="modeBadge">AUTO</div>
+      </div>
 
-    <div class="mode-pills">
-      <button class="pill active" id="pillA" onclick="setMode('auto')">A</button>
-      <button class="pill"        id="pillM" onclick="setMode('manual')">M</button>
-      <button class="pill"        id="pillG" onclick="toggleGrid()">⊞</button>
-    </div>
+      <div class="exp-strip">
+        <div class="exp-val"><span class="lbl">f</span><span class="val" id="fDisp">2.0</span></div>
+        <div class="exp-val"><span class="lbl">S</span><span class="val" id="sDisp">1/125</span></div>
+        <div class="exp-val"><span class="lbl">ISO</span><span class="val" id="iDisp">400</span></div>
+      </div>
 
-    <div id="manualPanel">
-      <div class="dials">
-        <div class="dial">
-          <div class="dial-lbl">Aperture</div>
-          <div class="dial-val" id="fDial">f/2.0</div>
-          <div class="dial-arrows">
-            <button class="darr" ontouchstart="startDial('f',-1)" onmousedown="startDial('f',-1)">‹</button>
-            <button class="darr" ontouchstart="startDial('f',1)"  onmousedown="startDial('f',1)">›</button>
-          </div>
-        </div>
-        <div class="dial">
-          <div class="dial-lbl">Shutter</div>
-          <div class="dial-val" id="sDial">1/125</div>
-          <div class="dial-arrows">
-            <button class="darr" ontouchstart="startDial('s',-1)" onmousedown="startDial('s',-1)">‹</button>
-            <button class="darr" ontouchstart="startDial('s',1)"  onmousedown="startDial('s',1)">›</button>
-          </div>
-        </div>
-        <div class="dial">
-          <div class="dial-lbl">ISO</div>
-          <div class="dial-val" id="iDial">400</div>
-          <div class="dial-arrows">
-            <button class="darr" ontouchstart="startDial('iso',-1)" onmousedown="startDial('iso',-1)">‹</button>
-            <button class="darr" ontouchstart="startDial('iso',1)"  onmousedown="startDial('iso',1)">›</button>
-          </div>
+      <div class="mode-pills">
+        <button class="pill active" id="pillA" onclick="setMode('auto')">A</button>
+        <button class="pill"        id="pillM" onclick="setMode('manual')">M</button>
+        <button class="pill"        id="pillG" onclick="toggleGrid()">⊞</button>
+      </div>
+
+      <!-- AF + EV cluster -->
+      <div id="afCluster">
+        <div id="afBox"></div>
+        <div id="evSliderWrap">
+          <span class="ev-sun top">☀</span>
+          <input type="range" id="evSlider" min="-3" max="3" step="0.1" value="0"
+                 oninput="onEvSlider(this.value)"
+                 ontouchstart="event.stopPropagation()"
+                 ontouchmove="event.stopPropagation()">
+          <span class="ev-sun bot">☾</span>
+          <div id="evReadout">0.0</div>
         </div>
       </div>
-    </div>
 
-    <!-- AF + EV cluster -->
-    <div id="afCluster">
-      <div id="afBox"></div>
-      <div id="evSliderWrap">
-        <span class="ev-sun top">☀</span>
-        <input type="range" id="evSlider" min="-3" max="3" step="0.1" value="0"
-               oninput="onEvSlider(this.value)"
-               ontouchstart="event.stopPropagation()"
-               ontouchmove="event.stopPropagation()">
-        <span class="ev-sun bot">☾</span>
-        <div id="evReadout">0.0</div>
-      </div>
-    </div>
-
-    <div class="grid-ov" id="gridOv">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-        <line x1="33.3" y1="0" x2="33.3" y2="100" stroke="white" stroke-width="0.3"/>
-        <line x1="66.6" y1="0" x2="66.6" y2="100" stroke="white" stroke-width="0.3"/>
-        <line x1="0" y1="33.3" x2="100" y2="33.3" stroke="white" stroke-width="0.3"/>
-        <line x1="0" y1="66.6" x2="100" y2="66.6" stroke="white" stroke-width="0.3"/>
-      </svg>
-    </div>
-
-    <div class="bracket tl"></div><div class="bracket tr"></div>
-    <div class="bracket bl"></div><div class="bracket br"></div>
-    <div id="zoomBadge">1×</div>
-
-    <div class="bottom-ctrl">
-      <div class="ftabs">
-        <button class="ftab active" onclick="switchTab('color')">Color</button>
-        <button class="ftab"        onclick="switchTab('mono')">Mono</button>
-        <button class="ftab"        onclick="switchTab('off')">Off</button>
+      <div class="grid-ov" id="gridOv">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+          <line x1="33.3" y1="0" x2="33.3" y2="100" stroke="white" stroke-width="0.3"/>
+          <line x1="66.6" y1="0" x2="66.6" y2="100" stroke="white" stroke-width="0.3"/>
+          <line x1="0" y1="33.3" x2="100" y2="33.3" stroke="white" stroke-width="0.3"/>
+          <line x1="0" y1="66.6" x2="100" y2="66.6" stroke="white" stroke-width="0.3"/>
+        </svg>
       </div>
 
-      <!-- Scrollable wrapper -->
-      <div class="fstrip-wrap" id="fstripWrap">
-        <div class="fstrip" id="fstrip"></div>
-      </div>
+      <div class="bracket tl"></div><div class="bracket tr"></div>
+      <div class="bracket bl"></div><div class="bracket br"></div>
+      <div id="zoomBadge">1×</div>
+    </div><!-- end #viewfinder -->
+  </div><!-- end #vfWrap -->
 
-      <div class="shutter-row">
-        <button class="side-btn" onclick="flipCam()">
-          <span class="si">⇄</span><span class="sl">Flip</span>
-        </button>
-        <button class="shutter" id="shutterBtn" onclick="capture()"></button>
-        <button class="side-btn" onclick="openGallery()">
-          <div id="galThumb" style="width:32px;height:32px;background:var(--mid);border-radius:2px;overflow:hidden;display:flex;align-items:center;justify-content:center;">
-            <span style="font-size:8px;color:var(--silver);">GAL</span>
-          </div>
-        </button>
+  <!-- Manual dials — outside viewfinder so always visible -->
+  <div id="manualPanel">
+    <div class="dials">
+      <div class="dial">
+        <div class="dial-lbl">Aperture</div>
+        <div class="dial-val" id="fDial">f/2.0</div>
+        <div class="dial-arrows">
+          <button class="darr" ontouchstart="startDial('f',-1)" onmousedown="startDial('f',-1)">‹</button>
+          <button class="darr" ontouchstart="startDial('f',1)"  onmousedown="startDial('f',1)">›</button>
+        </div>
+      </div>
+      <div class="dial">
+        <div class="dial-lbl">Shutter</div>
+        <div class="dial-val" id="sDial">1/125</div>
+        <div class="dial-arrows">
+          <button class="darr" ontouchstart="startDial('s',-1)" onmousedown="startDial('s',-1)">‹</button>
+          <button class="darr" ontouchstart="startDial('s',1)"  onmousedown="startDial('s',1)">›</button>
+        </div>
+      </div>
+      <div class="dial">
+        <div class="dial-lbl">ISO</div>
+        <div class="dial-val" id="iDial">400</div>
+        <div class="dial-arrows">
+          <button class="darr" ontouchstart="startDial('iso',-1)" onmousedown="startDial('iso',-1)">‹</button>
+          <button class="darr" ontouchstart="startDial('iso',1)"  onmousedown="startDial('iso',1)">›</button>
+        </div>
       </div>
     </div>
   </div>
+
+  <!-- Bottom controls — outside viewfinder -->
+  <div class="bottom-ctrl">
+    <div class="ftabs">
+      <button class="ftab active" onclick="switchTab('color')">Color</button>
+      <button class="ftab"        onclick="switchTab('mono')">Mono</button>
+      <button class="ftab"        onclick="switchTab('off')">Off</button>
+    </div>
+    <div class="fstrip-wrap" id="fstripWrap">
+      <div class="fstrip" id="fstrip"></div>
+    </div>
+    <div class="shutter-row">
+      <button class="side-btn" onclick="flipCam()">
+        <span class="si">⇄</span><span class="sl">Flip</span>
+      </button>
+      <button class="shutter" id="shutterBtn" onclick="capture()"></button>
+      <button class="side-btn" onclick="openGallery()">
+        <div id="galThumb" style="width:32px;height:32px;background:var(--mid);border-radius:2px;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:8px;color:var(--silver);">GAL</span>
+        </div>
+      </button>
+    </div>
+  </div>
+
 </div>
 
 <!-- ══ GALLERY ══ -->
@@ -687,32 +714,47 @@ function stepDial(type,dir){
 }
 
 // ════════════════════════════════════════
-// FILTER DEFINITIONS
-// 12 colour + 7 mono
+// FILTER DEFINITIONS — 22 colour + 7 mono
 // ════════════════════════════════════════
 const COLOR_FILTERS = [
-  { id:'classic',   name:'Classic M',  p:{ ex:5,  co:15, hi:-10, sh:10,  tmp:-5,  ti:5,  sat:5,  vib:10, red:20, grn:-15, lift:12, grain:18, vig:-30 }},
-  { id:'summilux',  name:'Summilux',   p:{ ex:10, co:20, hi:-20, sh:15,  tmp:10,  ti:0,  sat:8,  vib:15, red:25, grn:-10, lift:8,  grain:14, vig:-40 }},
-  { id:'noctilux',  name:'Noctilux',   p:{ ex:-5, co:30, hi:-30, sh:-10, tmp:-10, ti:-5, sat:-10,vib:5,  red:10, grn:-20, lift:20, grain:32, vig:-60 }},
-  { id:'elmarit',   name:'Elmarit',    p:{ ex:0,  co:10, hi:0,   sh:5,   tmp:0,   ti:10, sat:-5, vib:8,  red:15, grn:-20, lift:10, grain:8,  vig:-20 }},
-  { id:'portra',    name:'Portra 400', p:{ ex:5,  co:5,  hi:-5,  sh:20,  tmp:15,  ti:-5, sat:10, vib:20, red:30, grn:-5,  lift:20, grain:22, vig:-20 }},
-  { id:'velvia',    name:'Velvia',     p:{ ex:0,  co:25, hi:-10, sh:5,   tmp:5,   ti:0,  sat:30, vib:25, red:15, grn:10,  lift:5,  grain:6,  vig:-25 }},
-  { id:'provia',    name:'Provia',     p:{ ex:3,  co:12, hi:-8,  sh:8,   tmp:3,   ti:3,  sat:12, vib:12, red:10, grn:0,   lift:10, grain:10, vig:-22 }},
-  { id:'ektar',     name:'Ektar 100',  p:{ ex:0,  co:20, hi:-15, sh:5,   tmp:8,   ti:-8, sat:20, vib:18, red:35, grn:-18, lift:8,  grain:8,  vig:-30 }},
-  { id:'gold200',   name:'Gold 200',   p:{ ex:8,  co:8,  hi:-5,  sh:18,  tmp:20,  ti:5,  sat:15, vib:12, red:28, grn:5,   lift:18, grain:25, vig:-18 }},
-  { id:'cinestill',  name:'CineStill', p:{ ex:5,  co:18, hi:-12, sh:12,  tmp:12,  ti:8,  sat:8,  vib:8,  red:40, grn:-12, lift:25, grain:35, vig:-45 }},
-  { id:'crossproc', name:'Cross Proc', p:{ ex:10, co:35, hi:-20, sh:-5,  tmp:15,  ti:-12,sat:25, vib:20, red:30, grn:20,  lift:5,  grain:15, vig:-35 }},
-  { id:'faded',     name:'Faded',      p:{ ex:5,  co:-10,hi:10,  sh:25,  tmp:10,  ti:5,  sat:-15,vib:5,  red:10, grn:5,   lift:35, grain:28, vig:-15 }},
+  // ── Leica lens characters ──
+  { id:'classic',    name:'Classic M',   p:{ ex:5,  co:15, hi:-10, sh:10,  tmp:-5,  ti:5,  sat:5,  vib:10, red:20, grn:-15, lift:12, grain:18, vig:-30 }},
+  { id:'summilux',   name:'Summilux',    p:{ ex:10, co:20, hi:-20, sh:15,  tmp:10,  ti:0,  sat:8,  vib:15, red:25, grn:-10, lift:8,  grain:14, vig:-40 }},
+  { id:'noctilux',   name:'Noctilux',    p:{ ex:-5, co:30, hi:-30, sh:-10, tmp:-10, ti:-5, sat:-10,vib:5,  red:10, grn:-20, lift:20, grain:32, vig:-60 }},
+  { id:'elmarit',    name:'Elmarit',     p:{ ex:0,  co:10, hi:0,   sh:5,   tmp:0,   ti:10, sat:-5, vib:8,  red:15, grn:-20, lift:10, grain:8,  vig:-20 }},
+  // ── Classic film stocks ──
+  { id:'portra',     name:'Portra 400',  p:{ ex:5,  co:5,  hi:-5,  sh:20,  tmp:15,  ti:-5, sat:10, vib:20, red:30, grn:-5,  lift:20, grain:22, vig:-20 }},
+  { id:'velvia',     name:'Velvia',      p:{ ex:0,  co:25, hi:-10, sh:5,   tmp:5,   ti:0,  sat:30, vib:25, red:15, grn:10,  lift:5,  grain:6,  vig:-25 }},
+  { id:'provia',     name:'Provia',      p:{ ex:3,  co:12, hi:-8,  sh:8,   tmp:3,   ti:3,  sat:12, vib:12, red:10, grn:0,   lift:10, grain:10, vig:-22 }},
+  { id:'ektar',      name:'Ektar 100',   p:{ ex:0,  co:20, hi:-15, sh:5,   tmp:8,   ti:-8, sat:20, vib:18, red:35, grn:-18, lift:8,  grain:8,  vig:-30 }},
+  { id:'gold200',    name:'Gold 200',    p:{ ex:8,  co:8,  hi:-5,  sh:18,  tmp:20,  ti:5,  sat:15, vib:12, red:28, grn:5,   lift:18, grain:25, vig:-18 }},
+  { id:'cinestill',  name:'CineStill',   p:{ ex:5,  co:18, hi:-12, sh:12,  tmp:12,  ti:8,  sat:8,  vib:8,  red:40, grn:-12, lift:25, grain:35, vig:-45 }},
+  { id:'crossproc',  name:'Cross Proc',  p:{ ex:10, co:35, hi:-20, sh:-5,  tmp:15,  ti:-12,sat:25, vib:20, red:30, grn:20,  lift:5,  grain:15, vig:-35 }},
+  { id:'faded',      name:'Faded',       p:{ ex:5,  co:-10,hi:10,  sh:25,  tmp:10,  ti:5,  sat:-15,vib:5,  red:10, grn:5,   lift:35, grain:28, vig:-15 }},
+  // ── Mood / artistic ──
+  { id:'verdant',    name:'Verdant',     p:{ ex:2,  co:12, hi:-8,  sh:12,  tmp:-8,  ti:12, sat:18, vib:22, red:-10,grn:25,  lift:12, grain:12, vig:-28,
+                                             chGrn:30 }},
+  { id:'whiteMist',  name:'White Mist',  p:{ ex:18, co:-15,hi:25,  sh:30,  tmp:5,   ti:0,  sat:-20,vib:0,  red:0,  grn:0,   lift:40, grain:8,  vig:15  }},
+  { id:'darkMist',   name:'Dark Mist',   p:{ ex:-10,co:8,  hi:-5,  sh:5,   tmp:-8,  ti:-5, sat:-25,vib:0,  red:0,  grn:-5,  lift:8,  grain:20, vig:-55 }},
+  { id:'blueDream',  name:'Blue Dream',  p:{ ex:5,  co:10, hi:-10, sh:15,  tmp:-25, ti:-8, sat:15, vib:18, red:-15,grn:0,   lift:18, grain:20, vig:-40,
+                                             chBlu:35 }},
+  { id:'cobalt',     name:'Cobalt',      p:{ ex:0,  co:20, hi:-15, sh:5,   tmp:-35, ti:-10,sat:20, vib:15, red:-20,grn:-10, lift:10, grain:14, vig:-45,
+                                             chBlu:25 }},
+  { id:'scarlet',    name:'Scarlet',     p:{ ex:5,  co:22, hi:-15, sh:8,   tmp:20,  ti:10, sat:15, vib:20, red:55, grn:-25, lift:10, grain:16, vig:-38 }},
+  { id:'hazelnut',   name:'Hazelnut',    p:{ ex:8,  co:5,  hi:-5,  sh:22,  tmp:22,  ti:12, sat:-8, vib:8,  red:18, grn:8,   lift:30, grain:30, vig:-20 }},
+  { id:'poem',       name:'Poem',        p:{ ex:10, co:-5, hi:15,  sh:28,  tmp:8,   ti:15, sat:-12,vib:5,  red:10, grn:5,   lift:38, grain:22, vig:-10 }},
+  { id:'film',       name:'Film',        p:{ ex:3,  co:18, hi:-12, sh:10,  tmp:5,   ti:-5, sat:5,  vib:10, red:15, grn:-8,  lift:15, grain:40, vig:-32 }},
+  { id:'positive',   name:'Positive',    p:{ ex:8,  co:20, hi:-10, sh:8,   tmp:5,   ti:0,  sat:22, vib:22, red:12, grn:8,   lift:8,  grain:6,  vig:-18 }},
 ];
 
 const MONO_FILTERS = [
-  { id:'m_leica',   name:'Leica M',    p:{ mono:true, ex:0,  co:15, hi:-5,  sh:10,  lift:15, grain:22, vig:-35, tone:0  }},
-  { id:'m_hc',      name:'Hi-Cont',    p:{ mono:true, ex:5,  co:50, hi:-25, sh:-15, lift:6,  grain:18, vig:-55, tone:0  }},
-  { id:'m_q',       name:'Mono Q',     p:{ mono:true, ex:-5, co:38, hi:-22, sh:5,   lift:10, grain:12, vig:-42, tone:0  }},
-  { id:'m_deep',    name:'Deep',       p:{ mono:true, ex:-8, co:55, hi:-30, sh:-20, lift:4,  grain:8,  vig:-65, tone:0  }},
-  { id:'m_warm',    name:'Warm BW',    p:{ mono:true, ex:0,  co:20, hi:-10, sh:10,  lift:12, grain:28, vig:-30, tone:8  }},
-  { id:'m_cool',    name:'Cool BW',    p:{ mono:true, ex:2,  co:18, hi:-5,  sh:8,   lift:14, grain:18, vig:-30, tone:-8 }},
-  { id:'m_silver',  name:'Silver',     p:{ mono:true, ex:5,  co:8,  hi:5,   sh:25,  lift:28, grain:38, vig:-20, tone:4  }},
+  { id:'m_leica',    name:'Leica M',     p:{ mono:true, ex:0,  co:15, hi:-5,  sh:10,  lift:15, grain:22, vig:-35, tone:0  }},
+  { id:'m_hc',       name:'Hi-Cont',     p:{ mono:true, ex:5,  co:50, hi:-25, sh:-15, lift:6,  grain:18, vig:-55, tone:0  }},
+  { id:'m_q',        name:'Mono Q',      p:{ mono:true, ex:-5, co:38, hi:-22, sh:5,   lift:10, grain:12, vig:-42, tone:0  }},
+  { id:'m_deep',     name:'Deep',        p:{ mono:true, ex:-8, co:55, hi:-30, sh:-20, lift:4,  grain:8,  vig:-65, tone:0  }},
+  { id:'m_warm',     name:'Warm BW',     p:{ mono:true, ex:0,  co:20, hi:-10, sh:10,  lift:12, grain:28, vig:-30, tone:8  }},
+  { id:'m_cool',     name:'Cool BW',     p:{ mono:true, ex:2,  co:18, hi:-5,  sh:8,   lift:14, grain:18, vig:-30, tone:-8 }},
+  { id:'m_silver',   name:'Silver',      p:{ mono:true, ex:5,  co:8,  hi:5,   sh:25,  lift:28, grain:38, vig:-20, tone:4  }},
 ];
 
 function allFilters(){ return [...COLOR_FILTERS,...MONO_FILTERS]; }
@@ -778,6 +820,10 @@ function applyFilter(ctx, W, H, p, skipGrain){
       const tone=p.tone||0;
       r=grey+tone*.5; g=grey; b=grey-tone*.5;
     }
+
+    // Per-channel tint boosts (for Blue Dream, Cobalt, Verdant, Scarlet)
+    if(p.chBlu){ b=clamp(b + p.chBlu * (1 - b/255) * 1.2); }
+    if(p.chGrn){ g=clamp(g + p.chGrn * (1 - g/255) * 1.0); }
     d[i]=clamp(r);d[i+1]=clamp(g);d[i+2]=clamp(b);
   }
   ctx.putImageData(img,0,0);
@@ -836,8 +882,10 @@ function startLivePreview(){
     }
 
     ctx.drawImage(video,0,0,W,H);
-    // Merge EV compensation into filter params
-    const pWithEV = p ? Object.assign({}, p, {ex: (p.ex||0) + evCompensation*20}) : null;
+    // Merge EV compensation + manual exposure delta into filter params
+    const manualDelta = computeManualEVDelta();
+    const totalExAdj  = evCompensation*20 + (-manualDelta*20);
+    const pWithEV = p ? Object.assign({}, p, {ex: (p.ex||0) + totalExAdj}) : null;
     applyFilter(ctx,W,H,pWithEV,true); // skipGrain=true for live preview
     canvas.style.display='block';
   }
@@ -1099,17 +1147,93 @@ document.getElementById('viewfinder').addEventListener('touchmove',async e=>{
 document.getElementById('viewfinder').addEventListener('touchend',()=>{ pinchStart=null; },{passive:true});
 
 // ════════════════════════════════════════
-// CAPTURE
+// MANUAL EXPOSURE SIMULATION
+// Computes an EV delta vs a reference "correct" exposure
+// and applies it as brightness shift + ISO noise to the image
 // ════════════════════════════════════════
+function computeManualEVDelta(){
+  if(mode !== 'manual') return 0;
+
+  // Reference: f/2.0, 1/125, ISO 400 = EV ~10 in daylight
+  const REF_F = 2.0, REF_T = 1/125, REF_ISO = 400;
+
+  const f   = parseFloat(F_STOPS[fIdx]);
+  const tStr= SHUTTERS[sIdx];
+  const parts = tStr.replace('"','').split('/');
+  const t   = parts.length>1 ? parseInt(parts[0])/parseInt(parts[1]) : parseFloat(parts[0]);
+  const iso = parseInt(ISO_VALS[isoIdx]);
+
+  // EV = log2(N²/t) - log2(ISO/100)  (camera EV formula)
+  const evShot = Math.log2((f*f)/t) - Math.log2(iso/100);
+  const evRef  = Math.log2((REF_F*REF_F)/REF_T) - Math.log2(REF_ISO/100);
+
+  return evRef - evShot;  // positive = underexposed vs ref, negative = overexposed
+}
+
+function applyManualExposureToCanvas(ctx, W, H){
+  if(mode !== 'manual') return;
+  const delta = computeManualEVDelta();
+  if(Math.abs(delta) < 0.1) return;
+
+  const iso = parseInt(ISO_VALS[isoIdx]);
+
+  const img = ctx.getImageData(0,0,W,H);
+  const d   = img.data;
+
+  // Exposure: multiply by 2^delta
+  const expMult = Math.pow(2, -delta);  // negative delta = brighter
+
+  // ISO noise: simulate sensor noise — increases with ISO
+  const noiseFactor = Math.max(0, (iso - 400) / 400) * 18;
+
+  // Motion blur sim for slow shutter: >1/60 adds slight softness (via grain)
+  const tStr = SHUTTERS[sIdx].replace('"','');
+  const parts = tStr.split('/');
+  const t = parts.length>1 ? parseInt(parts[0])/parseInt(parts[1]) : parseFloat(parts[0]);
+  const motionBlur = t > (1/60) ? Math.min((t - 1/60) * 120, 30) : 0;
+
+  for(let i=0; i<d.length; i+=4){
+    // Exposure adjustment
+    let r = clamp(d[i]   * expMult);
+    let g = clamp(d[i+1] * expMult);
+    let b = clamp(d[i+2] * expMult);
+
+    // ISO noise
+    if(noiseFactor > 0){
+      const n = (Math.random()-0.5) * noiseFactor;
+      r = clamp(r+n); g = clamp(g+n); b = clamp(b+n);
+    }
+
+    // Motion blur grain (slow shutter)
+    if(motionBlur > 0){
+      const m = (Math.random()-0.5) * motionBlur;
+      r=clamp(r+m); g=clamp(g+m); b=clamp(b+m);
+    }
+
+    d[i]=r; d[i+1]=g; d[i+2]=b;
+  }
+  ctx.putImageData(img,0,0);
+}
 async function capture(){
   if(isCapturing||!stream) return;
   isCapturing=true;
 
-  const video=document.getElementById('video');
-  const canvas=document.getElementById('captureCanvas');
-  const ctx=canvas.getContext('2d');
-  canvas.width=video.videoWidth||1920;
-  canvas.height=video.videoHeight||1080;
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('captureCanvas');
+  const ctx    = canvas.getContext('2d');
+
+  // Crop to 4:5 matching viewfinder
+  const vw = video.videoWidth  || 1920;
+  const vh = video.videoHeight || 1080;
+  const ratio45 = 4/5;
+  let cW, cH, sx=0, sy=0;
+  if(vw/vh > ratio45){
+    cH=vh; cW=Math.round(vh*ratio45); sx=Math.round((vw-cW)/2);
+  } else {
+    cW=vw; cH=Math.round(vw/ratio45); sy=Math.round((vh-cH)/2);
+  }
+  canvas.width=cW; canvas.height=cH;
+  ctx.drawImage(video, sx, sy, cW, cH, 0, 0, cW, cH);
 
   const btn=document.getElementById('shutterBtn');
   btn.classList.add('fire');
@@ -1119,11 +1243,13 @@ async function capture(){
   fl.classList.add('pop');
   setTimeout(()=>fl.classList.remove('pop'),110);
 
-  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  // 1. Apply manual exposure simulation (brightness + ISO noise + motion)
+  applyManualExposureToCanvas(ctx, cW, cH);
+
+  // 2. Apply colour filter + EV compensation
   const p=getActiveParams();
-  // Merge EV compensation: each EV stop ≈ 20 units in our exposure scale
   const pWithEV = p ? Object.assign({}, p, {ex: (p.ex||0) + evCompensation*20}) : null;
-  if(pWithEV) applyFilter(ctx,canvas.width,canvas.height,pWithEV,false);
+  if(pWithEV) applyFilter(ctx, cW, cH, pWithEV, false);
 
   // JPEG quality 0.88 — good quality, ~400-600KB per shot, far below IndexedDB limits
   const dataURL=canvas.toDataURL('image/jpeg',0.88);
