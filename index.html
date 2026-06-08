@@ -293,8 +293,22 @@ html,body{
 @keyframes ring{0%{box-shadow:0 0 0 0 rgba(204,0,0,.8),0 0 0 4px rgba(255,255,255,.12);}100%{box-shadow:0 0 0 22px rgba(204,0,0,0),0 0 0 4px rgba(255,255,255,.12);}}
 .shutter.fire{animation:ring .4s ease-out;}
 
-/* Grid */
-.grid-ov{position:absolute;inset:0;display:none;pointer-events:none;z-index:5;}
+/* AI toggle switch */
+.ai-toggle{position:relative;display:inline-block;width:38px;height:20px;}
+.ai-toggle input{opacity:0;width:0;height:0;}
+.ai-slider{
+  position:absolute;inset:0;background:var(--border);cursor:pointer;
+  border-radius:20px;transition:.25s;
+}
+.ai-slider::before{
+  content:'';position:absolute;width:14px;height:14px;
+  left:3px;top:3px;background:var(--silver);
+  border-radius:50%;transition:.25s;
+}
+.ai-toggle input:checked + .ai-slider{background:var(--red);}
+.ai-toggle input:checked + .ai-slider::before{transform:translateX(18px);background:#fff;}
+
+@keyframes spin{to{transform:rotate(360deg);}}
 .grid-ov.show{display:block;}
 .grid-ov svg{width:100%;height:100%;opacity:.22;}
 
@@ -549,6 +563,16 @@ html,body{
     <div class="fstrip-wrap" id="fstripWrap">
       <div class="fstrip" id="fstrip"></div>
     </div>
+    <!-- AI enhance toggle -->
+    <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:8px;gap:8px;">
+      <span style="font-size:9px;letter-spacing:.18em;color:var(--silver);text-transform:uppercase;">AI Enhance</span>
+      <label class="ai-toggle">
+        <input type="checkbox" id="aiToggle" checked>
+        <span class="ai-slider"></span>
+      </label>
+      <span id="aiLabel" style="font-size:9px;letter-spacing:.15em;color:var(--red);text-transform:uppercase;min-width:20px;">ON</span>
+    </div>
+
     <div class="shutter-row">
       <button class="side-btn" onclick="flipCam()">
         <span class="si">⇄</span><span class="sl">Flip</span>
@@ -562,6 +586,13 @@ html,body{
     </div>
   </div>
 
+</div>
+
+<!-- AI processing overlay -->
+<div id="aiOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:500;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
+  <div style="width:60px;height:60px;border:2px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin 0.9s linear infinite;"></div>
+  <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.3em;color:var(--cream);">LEITZ <span style="color:var(--red);">AI</span></div>
+  <div id="aiStatus" style="font-size:10px;letter-spacing:.2em;color:var(--silver);text-transform:uppercase;text-align:center;max-width:240px;line-height:1.8;"></div>
 </div>
 
 <!-- ══ GALLERY ══ -->
@@ -1214,6 +1245,199 @@ function applyManualExposureToCanvas(ctx, W, H){
   }
   ctx.putImageData(img,0,0);
 }
+
+// ════════════════════════════════════════
+// AI ENHANCEMENT ENGINE
+// Sends a downscaled JPEG to Claude Vision,
+// receives scene-specific adjustment JSON,
+// applies it to the full-res canvas.
+// ════════════════════════════════════════
+let aiEnabled = true;
+
+document.getElementById('aiToggle').addEventListener('change', function(){
+  aiEnabled = this.checked;
+  document.getElementById('aiLabel').textContent = aiEnabled ? 'ON' : 'OFF';
+  document.getElementById('aiLabel').style.color = aiEnabled ? 'var(--red)' : 'var(--silver)';
+});
+
+function setAiStatus(msg){ document.getElementById('aiStatus').innerHTML = msg; }
+function showAiOverlay(){ document.getElementById('aiOverlay').style.display='flex'; }
+function hideAiOverlay(){ document.getElementById('aiOverlay').style.display='none'; }
+
+async function runAIEnhancement(canvas, ctx){
+  showAiOverlay();
+  setAiStatus('Analysing scene...');
+  try{
+    // Downscale to 512px wide for Vision analysis
+    const thumb = document.createElement('canvas');
+    const scale = Math.min(1, 512/canvas.width);
+    thumb.width  = Math.round(canvas.width*scale);
+    thumb.height = Math.round(canvas.height*scale);
+    const tctx = thumb.getContext('2d');
+    tctx.drawImage(canvas, 0, 0, thumb.width, thumb.height);
+    const b64 = thumb.toDataURL('image/jpeg', 0.82).split(',')[1];
+
+    setAiStatus('Reading light, colour & scene...');
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:800,
+        messages:[{
+          role:'user',
+          content:[
+            { type:'image', source:{ type:'base64', media_type:'image/jpeg', data:b64 }},
+            { type:'text', text:`You are a professional photo retoucher with expertise in computational photography like Apple ProRAW and Samsung Expert RAW. Analyse this photo and return ONLY a valid JSON object (no markdown, no explanation) with pixel-level enhancement values.
+
+Inspect carefully: sky colour/saturation, highlights, shadows, skin tones if present, overall white balance, and scene type.
+
+Return exactly this JSON structure with integer values in the specified ranges:
+{"scene":"daylight|golden_hour|overcast|indoor|night|sunset|backlit","skyBoost":0,"skyHueShift":0,"highlightRecovery":0,"shadowLift":0,"clarityBoost":0,"warmth":0,"tint":0,"saturation":0,"vibrance":0,"greeneryBoost":0,"skinProtect":false,"dehazeStrength":0,"contrastMicro":0,"noiseReduceStrength":0}
+
+Ranges:
+- skyBoost 0-60: boost blue in sky regions. 0=no sky, 40=sky needs major boost
+- skyHueShift -20 to +20: shift sky hue (negative=cyan, positive=purple)
+- highlightRecovery 0-50: recover blown highlights
+- shadowLift 0-40: brighten deep shadows
+- clarityBoost 0-30: local midtone contrast
+- warmth -40 to +40: temperature (negative=cooler, positive=warmer)
+- tint -20 to +20: green-magenta correction
+- saturation -20 to +25: global saturation
+- vibrance 0-30: boost muted colours
+- greeneryBoost 0-40: enrich foliage greens
+- skinProtect true/false: faces visible → protect skin from oversaturation
+- dehazeStrength 0-40: remove haze/fog
+- contrastMicro 0-20: fine detail contrast
+- noiseReduceStrength 0-30: smooth noise (higher for dark/indoor)`
+            }
+          ]
+        }]
+      })
+    });
+
+    if(!resp.ok) throw new Error('API '+resp.status);
+    const data = await resp.json();
+    const raw  = data.content.find(b=>b.type==='text')?.text||'{}';
+    const adj  = JSON.parse(raw.replace(/```json|```/g,'').trim());
+
+    setAiStatus(`Scene: ${(adj.scene||'').replace('_',' ').toUpperCase()}<br>Applying enhancements...`);
+    applyAIAdjustments(ctx, canvas.width, canvas.height, adj);
+    setAiStatus('Done ✓');
+    await new Promise(r=>setTimeout(r,400));
+  } catch(e){
+    console.warn('AI enhancement failed:',e);
+    setAiStatus('Enhancement skipped');
+    await new Promise(r=>setTimeout(r,600));
+  } finally {
+    hideAiOverlay();
+  }
+}
+
+function applyAIAdjustments(ctx, W, H, adj){
+  const img=ctx.getImageData(0,0,W,H), d=img.data;
+
+  const skyBoost  = adj.skyBoost    ||0;
+  const skyHue    = adj.skyHueShift ||0;
+  const hlRec     = (adj.highlightRecovery||0)/100;
+  const shLift    = (adj.shadowLift  ||0)/200;
+  const warmth    = (adj.warmth      ||0)/100*20;
+  const tint      = (adj.tint        ||0)/100*10;
+  const satAdj    = 1+(adj.saturation||0)/100;
+  const vibAdj    = (adj.vibrance    ||0)/200;
+  const grnBoost  = (adj.greeneryBoost||0)/100*25;
+  const dehaze    = (adj.dehazeStrength||0)/100;
+  const microCo   = 1+(adj.contrastMicro||0)/100;
+  const noiseF    = (adj.noiseReduceStrength||0)/255*0.35;
+  const skinPro   = !!adj.skinProtect;
+
+  for(let i=0;i<d.length;i+=4){
+    let r=d[i],g=d[i+1],b=d[i+2];
+    const lum=0.299*r+0.587*g+0.114*b;
+
+    // Skin detection
+    const isSkin = skinPro && r>100 && r>g && r>b && (r-g)>15 && (r-b)>20 && g>60 && b>40;
+
+    // Highlight recovery
+    if(hlRec>0 && lum>220){
+      const f=(lum-220)/35*hlRec;
+      r-=f*(r-200); g-=f*(g-200); b-=f*(b-200);
+    }
+
+    // Shadow lift
+    if(shLift>0 && lum<80){
+      const f=(80-lum)/80;
+      r+=shLift*f*(255-r); g+=shLift*f*(255-g); b+=shLift*f*(255-b);
+    }
+
+    // Sky boost — detect blue-dominant regions
+    const isSky = b>r && b>g && b>80 && (b-r)>20 && lum>80 && lum<230;
+    if(isSky && skyBoost>0){
+      const s=Math.min(1,(b-Math.max(r,g))/60)*skyBoost/100;
+      b=clamp(b+s*(255-b)*0.7);
+      r=clamp(r-s*8);
+      if(skyHue<0) g=clamp(g-Math.abs(skyHue)*s*0.4);
+      if(skyHue>0) r=clamp(r+skyHue*s*0.3);
+    }
+
+    // Greenery boost
+    const isGrn = g>r && g>b && (g-r)>15 && (g-b)>10 && lum<200;
+    if(isGrn && grnBoost>0){
+      const s=Math.min(1,(g-Math.max(r,b))/50)*grnBoost/100;
+      g=clamp(g+s*(255-g)*0.5); b=clamp(b-s*5);
+    }
+
+    // Warmth & tint
+    r=clamp(r+warmth); b=clamp(b-warmth*0.7); g=clamp(g+tint);
+
+    // Dehaze
+    if(dehaze>0){
+      const df=dehaze*0.5;
+      r=clamp((r-128)*(1+df)+128);
+      g=clamp((g-128)*(1+df)+128);
+      b=clamp((b-128)*(1+df)+128);
+    }
+
+    // Micro contrast
+    if(microCo!==1){
+      const mid=(r+g+b)/3;
+      r=clamp((r-mid)*microCo+mid);
+      g=clamp((g-mid)*microCo+mid);
+      b=clamp((b-mid)*microCo+mid);
+    }
+
+    // Saturation
+    if(!isSkin){
+      const avg=(r+g+b)/3;
+      r=clamp(avg+(r-avg)*satAdj);
+      g=clamp(avg+(g-avg)*satAdj);
+      b=clamp(avg+(b-avg)*satAdj);
+    }
+
+    // Vibrance — boost muted colours
+    if(vibAdj>0 && !isSkin){
+      const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+      const sat2=mx?(mx-mn)/mx:0;
+      const vb=1+vibAdj*(1-sat2);
+      const avg2=(r+g+b)/3;
+      r=clamp(avg2+(r-avg2)*vb);
+      g=clamp(avg2+(g-avg2)*vb);
+      b=clamp(avg2+(b-avg2)*vb);
+    }
+
+    // Noise reduction
+    if(noiseF>0 && i>4 && i<d.length-4){
+      r=clamp(r*(1-noiseF)+((d[i-4]+d[i+4])/2)*noiseF);
+      g=clamp(g*(1-noiseF)+((d[i-3]+d[i+5])/2)*noiseF);
+      b=clamp(b*(1-noiseF)+((d[i-2]+d[i+6])/2)*noiseF);
+    }
+
+    d[i]=clamp(r); d[i+1]=clamp(g); d[i+2]=clamp(b);
+  }
+  ctx.putImageData(img,0,0);
+}
+
 async function capture(){
   if(isCapturing||!stream) return;
   isCapturing=true;
@@ -1251,19 +1475,25 @@ async function capture(){
   const pWithEV = p ? Object.assign({}, p, {ex: (p.ex||0) + evCompensation*20}) : null;
   if(pWithEV) applyFilter(ctx, cW, cH, pWithEV, false);
 
-  // JPEG quality 0.88 — good quality, ~400-600KB per shot, far below IndexedDB limits
-  const dataURL=canvas.toDataURL('image/jpeg',0.88);
+  // 3. AI Enhancement — analyse scene and apply intelligent adjustments
+  if(aiEnabled){
+    await runAIEnhancement(canvas, ctx);
+  }
+
+  // JPEG quality 0.92 after AI processing
+  const dataURL=canvas.toDataURL('image/jpeg',0.92);
   const meta={
-    id:Date.now(),filter:activeFilter,mode,
+    id:Date.now(), filter:activeFilter, mode,
+    aiEnhanced: aiEnabled,
     f:mode==='manual'?'f/'+F_STOPS[fIdx]:'AUTO',
     s:mode==='manual'?SHUTTERS[sIdx]:'AUTO',
     iso:mode==='manual'?'ISO '+ISO_VALS[isoIdx]:'AUTO',
-    ts:new Date().toISOString(),dataURL
+    ts:new Date().toISOString(), dataURL
   };
   photos.unshift(meta);
   try{ await dbSave(meta); } catch(e){ console.warn('DB save failed',e); }
   updateGalThumb(dataURL);
-  toast('Frame saved');
+  toast(aiEnabled ? '✦ Frame enhanced & saved' : 'Frame saved');
   isCapturing=false;
 }
 
@@ -1301,6 +1531,12 @@ function renderGallery(){
     const badge=document.createElement('div');
     badge.className='fbadge';
     badge.textContent=p.filter.replace('m_','').substring(0,8);
+    if(p.aiEnhanced){
+      const aiBadge=document.createElement('div');
+      aiBadge.style.cssText='position:absolute;top:3px;right:3px;font-size:7px;letter-spacing:.06em;background:var(--red);color:#fff;padding:2px 4px;text-transform:uppercase;';
+      aiBadge.textContent='AI';
+      item.appendChild(aiBadge);
+    }
     item.appendChild(img); item.appendChild(badge);
 
     // Tap = open viewer
@@ -1334,6 +1570,7 @@ function updateViewerUI(){
     `${viewerIdx+1} / ${photos.length}`;
   document.getElementById('viewerMeta').innerHTML =
     `${p.filter.toUpperCase()} &nbsp;·&nbsp; ${p.f} &nbsp;·&nbsp; ${p.s} &nbsp;·&nbsp; ${p.iso}`+
+    (p.aiEnhanced ? ' &nbsp;·&nbsp; <span style="color:var(--red);">✦ AI</span>' : '')+
     `<br><span style="font-size:8px;opacity:.5;">${new Date(p.ts).toLocaleString()}</span>`;
   // Move track without animation when opening, with animation when swiping
   const track = document.getElementById('viewerTrack');
